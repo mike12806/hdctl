@@ -62,7 +62,7 @@ export function ArgoPage() {
 
       {apps.length > 0 && (
         <div className="table-wrap">
-          <table className="table">
+          <table className="table table-stack">
             <thead>
               <tr>
                 <th>Application</th>
@@ -76,11 +76,14 @@ export function ArgoPage() {
             <tbody>
               {apps.map((a) => (
                 <tr key={a.name}>
-                  <td>
+                  <td className="cell-main">
                     <a className="strong" href={`https://argo.mfaherty.net/applications/argo/${a.name}`} target="_blank" rel="noreferrer">
                       {a.name}
                     </a>
                     <div className="muted mono small">{[a.namespace, a.path].filter(Boolean).join(" · ")}</div>
+                    {/* Shown, not only in a tooltip: there's no hover on a phone. */}
+                    {a.health !== "Healthy" && a.healthMessage && <div className="small tone-warn">{a.healthMessage}</div>}
+                    {(a.operation === "Failed" || a.operation === "Error") && a.operationMessage && <div className="small tone-bad">{a.operationMessage}</div>}
                   </td>
                   <td>
                     <Pill tone={HEALTH[a.health] ?? "muted"} title={a.healthMessage ?? undefined}>
@@ -92,7 +95,7 @@ export function ArgoPage() {
                       {a.sync}
                     </Pill>
                   </td>
-                  <td>
+                  <td data-label={a.operation ? "last op" : undefined}>
                     {a.operation ? (
                       <span title={a.operationMessage ?? undefined}>
                         <Pill tone={OP[a.operation] ?? "muted"}>{a.operation}</Pill>{" "}
@@ -102,7 +105,9 @@ export function ArgoPage() {
                       <span className="muted">–</span>
                     )}
                   </td>
-                  <td className="muted small">{a.reconciledAt ? ago(a.reconciledAt, now) : "–"}</td>
+                  <td className="muted small" data-label="reconciled">
+                    {a.reconciledAt ? ago(a.reconciledAt, now) : "–"}
+                  </td>
                   <td className="row-actions">
                     <button className="btn btn-sm" onClick={() => setPending({ app: a, kind: "refresh" })}>
                       Refresh
