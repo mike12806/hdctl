@@ -26,7 +26,7 @@ export function AuditPage() {
       {data && !data.length && <Empty>Nothing yet. Syncs, guest actions and workflow runs land here.</Empty>}
       {data && data.length > 0 && (
         <div className="table-wrap">
-          <table className="table">
+          <table className="table table-stack table-audit">
             <thead>
               <tr>
                 <th>When</th>
@@ -39,19 +39,19 @@ export function AuditPage() {
             <tbody>
               {data.map((e) => (
                 <tr key={e.id}>
-                  <td className="small mono">{time(e.at)}</td>
-                  <td className="mono">{e.action}</td>
-                  <td className="mono small">
+                  <td className="small mono cell-when">{time(e.at)}</td>
+                  <td className="mono strong cell-action">{e.action}</td>
+                  <td className="mono small cell-main">
                     {e.target}
                     {e.params && e.params !== "{}" && <div className="muted">{e.params}</div>}
                   </td>
-                  <td>
+                  <td className="cell-result">
                     <Pill tone={STATUS[e.status]}>{e.status}</Pill>{" "}
                     <span className="muted small mono result" title={e.result ?? undefined}>
                       {e.result}
                     </span>
                   </td>
-                  <td className="small muted">{e.actor}</td>
+                  <td className="small muted cell-who">{e.actor}</td>
                 </tr>
               ))}
             </tbody>
