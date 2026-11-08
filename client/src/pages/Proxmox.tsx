@@ -86,7 +86,7 @@ export function ProxmoxPage() {
               {!h.error && guests.length === 0 && <Empty>No guests match.</Empty>}
               {guests.length > 0 && (
                 <div className="table-wrap">
-                  <table className="table table-compact">
+                  <table className="table table-compact table-stack">
                     <thead>
                       <tr>
                         <th>ID</th>
@@ -101,8 +101,8 @@ export function ProxmoxPage() {
                     <tbody>
                       {guests.map((g) => (
                         <tr key={`${g.type}/${g.vmid}`}>
-                          <td className="mono">{g.vmid}</td>
-                          <td>
+                          <td className="mono cell-id">{g.vmid}</td>
+                          <td className="cell-main">
                             <span className="strong">{g.name}</span> <span className="badge">{g.type === "qemu" ? "VM" : "CT"}</span>
                             {g.tags.map((t) => (
                               <span key={t} className="tag">
@@ -113,9 +113,15 @@ export function ProxmoxPage() {
                           <td>
                             <Pill tone={STATUS[g.status] ?? "muted"}>{g.status}</Pill>
                           </td>
-                          <td className="mono small">{g.status === "running" ? `${(g.cpu * 100).toFixed(0)}% / ${g.maxcpu}` : "–"}</td>
-                          <td className="mono small">{g.status === "running" ? `${bytes(g.mem)} / ${bytes(g.maxmem)}` : bytes(g.maxmem)}</td>
-                          <td className="small muted">{g.status === "running" ? duration(g.uptime) : "–"}</td>
+                          <td className="mono small" data-label="CPU">
+                            {g.status === "running" ? `${(g.cpu * 100).toFixed(0)}% / ${g.maxcpu}` : "–"}
+                          </td>
+                          <td className="mono small" data-label="RAM">
+                            {g.status === "running" ? `${bytes(g.mem)} / ${bytes(g.maxmem)}` : bytes(g.maxmem)}
+                          </td>
+                          <td className="small muted" data-label="up">
+                            {g.status === "running" ? duration(g.uptime) : "–"}
+                          </td>
                           <td className="row-actions">
                             {g.status === "running" ? (
                               <>
