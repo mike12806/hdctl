@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api, post, type DispatchInput, type Workflow, type WorkflowInputs, type WorkflowRun } from "../api";
 import { ago } from "../format";
 import { useNow, usePoll } from "../hooks";
-import { ConfirmDialog, Empty, ErrorNote, PageHeader, Pill, type Tone } from "../components/ui";
+import { AsOf, ConfirmDialog, Empty, ErrorNote, Loading, PageHeader, Pill, type Tone } from "../components/ui";
 
 function runTone(r: WorkflowRun): Tone {
   if (r.status !== "completed") return "info";
@@ -25,7 +25,14 @@ export function ActionsPage() {
 
   return (
     <>
-      <PageHeader title="GitHub Actions" subtitle="Recent runs and workflow dispatch for the homelab repositories">
+      <PageHeader
+        title="GitHub Actions"
+        subtitle={
+          <>
+            <AsOf at={runs.fetchedAt} loading={runs.loading} /> · recent runs and workflow dispatch for the homelab repositories
+          </>
+        }
+      >
         <select className="input" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)}>
           <option value="all">All repositories</option>
           {repos.map((r) => (
@@ -34,12 +41,16 @@ export function ActionsPage() {
             </option>
           ))}
         </select>
+        <button className="btn" onClick={() => void Promise.all([runs.reload(), workflows.reload()])} disabled={runs.loading}>
+          Refresh
+        </button>
       </PageHeader>
 
       <div className="split">
         <section>
           <h2 className="group-title">Recent runs</h2>
           <ErrorNote error={runs.error} />
+          {!runs.data && !runs.error && <Loading what="workflow runs" />}
           {runs.data && !shownRuns.length && <Empty>No runs.</Empty>}
           <ul className="runs">
             {shownRuns.map((r) => (
@@ -66,6 +77,7 @@ export function ActionsPage() {
           <h2 className="group-title">Run a workflow</h2>
           <input className="input input-block" placeholder="Filter workflows" value={wfFilter} onChange={(e) => setWfFilter(e.target.value)} />
           <ErrorNote error={workflows.error} />
+          {!workflows.data && !workflows.error && <Loading what="workflows" />}
           <ul className="workflows">
             {shownWorkflows.map((w) => (
               <li key={`${w.repo}/${w.id}`} className="workflow">

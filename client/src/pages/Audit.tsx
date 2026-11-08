@@ -1,16 +1,28 @@
 import { api, type AuditEntry } from "../api";
 import { time } from "../format";
 import { usePoll } from "../hooks";
-import { Empty, ErrorNote, PageHeader, Pill, type Tone } from "../components/ui";
+import { AsOf, Empty, ErrorNote, Loading, PageHeader, Pill, type Tone } from "../components/ui";
 
 const STATUS: Record<AuditEntry["status"], Tone> = { ok: "good", error: "bad", started: "info" };
 
 export function AuditPage() {
-  const { data, error } = usePoll(() => api<AuditEntry[]>("/api/audit"), 30_000);
+  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<AuditEntry[]>("/api/audit"), 30_000);
   return (
     <>
-      <PageHeader title="Audit log" subtitle="Every action hdctl has taken on another system, newest first (last 200)" />
+      <PageHeader
+        title="Audit log"
+        subtitle={
+          <>
+            <AsOf at={fetchedAt} loading={loading} /> · every action hdctl has taken on another system, newest first (last 200)
+          </>
+        }
+      >
+        <button className="btn" onClick={() => void reload()} disabled={loading}>
+          Refresh
+        </button>
+      </PageHeader>
       <ErrorNote error={error} />
+      {!data && !error && <Loading what="the audit log" />}
       {data && !data.length && <Empty>Nothing yet. Syncs, guest actions and workflow runs land here.</Empty>}
       {data && data.length > 0 && (
         <div className="table-wrap">

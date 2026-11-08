@@ -6,8 +6,11 @@ apps, start or reboot Proxmox guests, and run GitHub Actions workflows. Every
 action lands in an audit log.
 
 It runs entirely on Cloudflare: a single Worker serves the React app and its
-API, D1 stores health history and the audit log, and Cloudflare Access gates
-it. The Worker reaches the LAN privately over Workers VPC through the existing
+API, and Cloudflare Access gates it. **Everything a page shows about the lab
+is fetched live from its source on that request**: the targets themselves,
+Argo CD, Proxmox, GitHub. D1 keeps only what no backend can give back (check
+history and the audit log), and KV is a cache that can't serve stale data (see
+[Where the data comes from](#where-the-data-comes-from)). The Worker reaches the LAN privately over Workers VPC through the existing
 `kubernetes` Cloudflare Tunnel, with **no inbound path into the homelab** and
 **no dependency on the cluster gateway or internal DNS** for anything that
 isn't itself in the cluster.
@@ -19,7 +22,7 @@ isn't itself in the cluster.
 
 | Panel | What it shows | What it can do |
 |---|---|---|
-| **Status** | 27 endpoints probed every 2 minutes: state, latency, 2-hour history strip, 24-hour uptime. Vault nodes report active / standby / sealed | Check now |
+| **Status** | 27 endpoints probed live on every refresh: state, latency, HTTP code; plus a 2-hour history strip and 24-hour uptime from checks recorded every 2 minutes. Vault nodes report active / standby / sealed | Refresh |
 | **Argo CD** | Every Application's health, sync, and last operation | Refresh (normal or hard), Sync (never prunes) |
 | **Proxmox** | All 7 standalone hosts: node CPU/RAM/uptime and every VM and CT | Start, shut down, reboot (ACPI; no hard stop) |
 | **Actions** | Recent runs across `gh_hdc` and `public-jobs`, and every active workflow | Run any `workflow_dispatch` workflow, with a form built from its own inputs |
@@ -40,7 +43,8 @@ flowchart LR
       assets["React SPA<br/>static assets"]
       cron["Cron */2 min<br/>health checks"]
     end
-    d1[("D1 <b>hdctl-db</b><br/>checks · target_state · audit_log")]
+    d1[("D1 <b>hdctl-db</b><br/>history + audit only")]
+    kv[("KV <b>hdctl-cache</b><br/>ETag-validated copies")]
     vpc["Workers VPC<br/>27 pinned VPC Services"]
   end
 
@@ -58,6 +62,7 @@ flowchart LR
   api --> assets
   api <--> d1
   cron --> d1
+  api <-.-> kv
   api --> vpc
   cron --> vpc
   vpc -. outbound-only tunnel .-> cfd
@@ -92,11 +97,70 @@ the VPC Services don't change.
 
 Yes. The Worker talks to D1 through a binding, not the REST API, and the
 database's primary is in Eastern North America (`--location enam`), next to the
-tunnel's BOS/EWR connectors. Each page is **one** D1 round trip
-(`DB.batch()`), and a health-check run writes all 54 rows in one batch.
-Measured through `wrangler dev`, a full 27-target check pass, including the
-D1 writes, took 0.56 s, and nearly all of that is the tunnel hop to the LAN,
-not D1.
+tunnel's BOS/EWR connectors. The Status page's history is **one** D1 round
+trip (`DB.batch()`), run in parallel with the live probes, and a cron run
+writes all 54 rows in one batch. Measured through `wrangler dev`, probing all
+27 targets live took about 0.5 s, nearly all of it the tunnel hop to the LAN.
+
+---
+
+## Where the data comes from
+
+| Shown on | Source, on every request | Cached? | Kept in D1 |
+|---|---|---|---|
+| Status: state, latency, HTTP code | Live probe of each target through its VPC Service | No | — |
+| Status: duration, history strip, 24 h uptime | D1 (recorded by the cron every 2 min) | — | `checks`, `target_state` |
+| Argo CD | Argo CD API | **No**: it sends no validators, so a copy could never be confirmed | — |
+| Proxmox | Each host's API (`/cluster/resources`) | **No**, same reason | — |
+| GitHub runs, workflows, dispatch inputs | GitHub API | **KV, revalidated on every read** | — |
+| Audit | D1 | — | `audit_log` |
+
+**The KV cache is never a fallback.** Every GitHub read still goes to GitHub.
+The cached copy's ETag rides along as `If-None-Match`; the copy is used only if
+GitHub answers `304 Not Modified`, i.e. GitHub itself has just confirmed it is
+current. If GitHub (or anything else) is unreachable or answers with an
+error, that error is what you see, never the last good copy. So a backend
+that is down always *shows* as down.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant W as Worker
+  participant K as KV hdctl-cache
+  participant G as GitHub API
+
+  W->>K: get(gh:v1:…/actions/runs)
+  K-->>W: copy with ETag "e1" (or nothing)
+  W->>G: GET …/actions/runs + If-None-Match "e1"
+  alt unchanged
+    G-->>W: 304 Not Modified (free: not counted against the rate limit)
+    Note over W: GitHub just confirmed the copy, so use it
+  else changed
+    G-->>W: 200 + new body, ETag "e2"
+    W-)K: put(new body, "e2") after responding
+  else unreachable or error
+    G--xW: timeout / 4xx / 5xx
+    Note over W: the error goes to the page, the copy is never used
+  end
+```
+
+KV is eventually consistent (a write can take up to a minute to reach every
+location). That can't make anything stale here: an older copy carries an older
+ETag, so GitHub answers `200` with the current body. The worst case is a
+refetch. Measured: a second load of the Actions page cost **0** rate-limit
+units.
+
+### In the browser
+
+| What | How it stays current |
+|---|---|
+| API responses | `Cache-Control: no-store`, and every fetch uses `cache: "no-store"` |
+| `index.html`, favicon | `no-cache`: revalidated on every load, so a deploy is picked up immediately |
+| `/assets/*` (JS, CSS) | Content-hashed names, `immutable` for a year: changed content gets a new name, so an old file can't be served for a new one |
+| An open tab after a deploy | Every response carries `X-Hdctl-Build` (the git SHA). A tab running an older bundle reloads itself, or asks first if a confirmation dialog is open |
+| Back/forward navigation | A page restored from the browser's back/forward cache reloads instead of showing what it showed back then |
+| Data on screen | A failed refresh clears the panel and shows the error; data older than two poll intervals (sleeping laptop, hidden tab) is withheld until a fresh answer arrives. Every panel shows **live · as of** the time its data was fetched |
+| Service worker | None, so there's no offline cache
 
 ---
 
@@ -130,15 +194,21 @@ sequenceDiagram
 
 ## Health checks
 
+The same probe runs in two places: on every Status request (live, writes
+nothing) and from the cron every two minutes (recorded, for history).
+
 ```mermaid
 flowchart TD
-  cron["Cron every 2 min<br/>(or Check now)"] --> fan["Probe all 27 targets in parallel<br/>GET check.path through each VPC Service<br/>8 s timeout"]
+  page["Status page request"] --> fan
+  cron["Cron every 2 min"] --> fan["Probe all 27 targets in parallel<br/>GET check.path through each VPC Service<br/>8 s timeout"]
   fan --> cls{"classify()"}
   cls -->|expected code, under 3 s| up["up"]
   cls -->|slow, or unexpected 4xx| deg["degraded"]
   cls -->|5xx, refused, timeout| down["down"]
   cls -->|Vault: 200 active · 429 standby · 503 sealed| vault["Vault-aware state"]
-  up & deg & down & vault --> batch["One D1 batch:<br/>INSERT checks ×27<br/>UPSERT target_state ×27 (keeps 'since' unless state changed)"]
+  up & deg & down & vault --> who{"who asked?"}
+  who -->|page| merge["Live state + D1 history<br/>(duration, strip, 24 h uptime)"]
+  who -->|cron| batch["One D1 batch:<br/>INSERT checks ×27<br/>UPSERT target_state ×27 (keeps 'since' unless state changed)"]
   batch --> prune["waitUntil: delete checks older than 7 days"]
 ```
 
@@ -216,7 +286,7 @@ flowchart LR
   a --> c["3 · Cloudflare API token<br/>→ kv/github/hdctl/cloudflare"]
   a --> d["4 · Argo CD token<br/>→ kv/github/hdctl/argo"]
   b & c & d --> e["5 · Merge to main<br/>→ Deploy workflow"]
-  e --> f["6 · Commit the D1 database_id<br/>it prints"]
+  e --> f["6 · Commit the D1 and KV ids<br/>it prints"]
 ```
 
 1. **Merge the gh_hdc PR.** It adds the Access app `hdctl`
@@ -230,6 +300,7 @@ flowchart LR
    - Account › **Workers Scripts** › Edit (the very first deploy creates the
      Worker, which needs Workers Admin)
    - Account › **D1** › Edit
+   - Account › **Workers KV Storage** › Edit
    - Account › **Connectivity Directory** › Bind
    - Zone `mfaherty.net` › **Workers Routes** › Edit (for the custom domain)
 
@@ -242,10 +313,12 @@ flowchart LR
    argocd login argo.mfaherty.net --sso
    vault kv put kv/github/hdctl/argo ARGOCD_TOKEN="$(argocd account generate-token --account hdctl)"
    ```
-5. **Merge to `main`.** `deploy.yml` builds, creates `hdctl-db` if it doesn't
-   exist, applies migrations, deploys, and syncs the secrets.
-6. **Commit the D1 id** the deploy prints as a notice
-   (`database_id = "…"` under `database_name` in `worker/wrangler.toml`).
+5. **Merge to `main`.** `deploy.yml` builds, creates `hdctl-db` and the KV
+   namespace `hdctl-cache` if they don't exist, applies migrations, deploys,
+   and syncs the secrets.
+6. **Commit the two ids** the deploy prints as notices: `database_id = "…"`
+   under `database_name`, and `id = "…"` under `binding = "CACHE"`, in
+   `worker/wrangler.toml`.
 
 ## Deploy pipeline
 
@@ -256,8 +329,8 @@ flowchart LR
   test --> aud{"AUD set?"}
   aud -->|no| stop(["fail: set CF_ACCESS_AUD"])
   aud -->|yes| vault["vault-secrets<br/>GitHub OIDC → Tailscale tag:ci-vault<br/>→ Vault role hdctl-deploy"]
-  vault --> d1["resolve / create hdctl-db<br/>apply migrations"]
-  d1 --> dep["wrangler deploy<br/>(Worker + assets + 27 VPC bindings)"]
+  vault --> d1["resolve / create hdctl-db + hdctl-cache<br/>apply migrations"]
+  d1 --> dep["wrangler deploy --var BUILD_ID:sha<br/>(Worker + assets built with the same id)"]
   dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN"]
 ```
 
@@ -314,11 +387,13 @@ worker/
   src/
     index.ts          routes, Access check, CSRF guard, cron entry
     auth.ts           Access JWT verification
-    health.ts         probes, classification, status summary
+    health.ts         live probes, classification, recorded history
+    cache.ts          KV cache that only serves origin-confirmed (304) copies
     audit.ts          audited() wrapper + audit log reads
     targets.ts        target catalog + VPC fetch helper
     integrations/     argo.ts · proxmox.ts · github.ts
-  test/               vitest: JWT verification, classification, input parsing, validation
+  test/               vitest: JWT verification, the never-stale cache, classification,
+                      input parsing, validation
 client/
   src/pages/          Status · Argo · Proxmox · Actions · Audit
   src/components/     pills, meters, confirm dialog
@@ -361,6 +436,7 @@ there even if it were set.
 |---|---|
 | Logs | Workers Logs in the dashboard; also exported over OTLP to Redpanda → Elasticsearch (`redpanda-logs` destination). The cron logs one line per run listing anything not up |
 | Query D1 | `npx wrangler d1 execute hdctl-db --remote --command "SELECT * FROM target_state"` |
+| Empty the cache | Safe at any time (it only saves transfers): `npx wrangler kv key list --binding CACHE --remote`, then delete keys, or recreate the namespace |
 | Rotate a credential | Update it in Vault, re-run **Deploy** |
 | A panel says "Not set up yet" | Its secret is empty: the message names which one and where it lives in Vault |
 | Everything shows down at once | The tunnel: check `kubectl -n default get pods -l app=cloudflared`. If the cluster itself is down, that's expected (see "What still depends on the cluster") |

@@ -110,3 +110,18 @@ export function PageHeader({ title, subtitle, children }: { title: string; subti
     </header>
   );
 }
+
+/** "live · as of 20:14:03": when the data on screen was fetched from its source. */
+export function AsOf({ at, loading }: { at: number | null; loading?: boolean }) {
+  if (at === null) return <span className="asof muted">{loading ? "fetching live data…" : "no data"}</span>;
+  return (
+    <span className="asof" title={new Date(at).toString()}>
+      <span className={`dot dot-good${loading ? " dot-pulse-soft" : ""}`} aria-hidden /> live · as of {new Date(at).toLocaleTimeString()}
+    </span>
+  );
+}
+
+/** Shown instead of data while nothing current is available (first load, or data aged out). */
+export function Loading({ what }: { what: string }) {
+  return <div className="empty">Fetching {what} live…</div>;
+}

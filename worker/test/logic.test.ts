@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classify } from "../src/health";
+import { classify, sinceFor } from "../src/health";
 import { TARGETS, targetById } from "../src/targets";
 import { dispatchInputs } from "../src/integrations/github";
 import { parseGuestRef } from "../src/integrations/proxmox";
@@ -37,6 +37,19 @@ describe("classify", () => {
     expect(classify(vault, { code: 200 }, 5)).toMatchObject({ state: "up", detail: "active" });
     expect(classify(vault, { code: 429 }, 5)).toMatchObject({ state: "up", detail: "standby" });
     expect(classify(vault, { code: 503 }, 5)).toMatchObject({ state: "down", detail: "sealed" });
+  });
+});
+
+describe("sinceFor", () => {
+  const recorded = { state: "up" as const, since: 1_000, checkedAt: 5_000 };
+  it("keeps the recorded start when the live state matches it", () => {
+    expect(sinceFor("up", recorded)).toEqual({ since: 1_000, changedAfter: null });
+  });
+  it("says only 'changed after the last recorded check' when the live state differs", () => {
+    expect(sinceFor("down", recorded)).toEqual({ since: null, changedAfter: 5_000 });
+  });
+  it("knows nothing before the first recorded check", () => {
+    expect(sinceFor("up", undefined)).toEqual({ since: null, changedAfter: null });
   });
 });
 

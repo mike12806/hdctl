@@ -85,14 +85,17 @@ export function tokenFrom(req: Request): string | null {
   return m?.[1] ?? null;
 }
 
-// Access's signing keys, cached for the isolate's lifetime. An unknown kid
-// refetches (keys rotate), but at most once a minute, so a stream of forged
-// tokens can't turn into a stream of subrequests.
+// Access's signing keys, cached in the isolate for at most an hour, so a key
+// Access has retired stops being accepted within the hour. An unknown kid
+// refetches at once (keys rotate), but at most once a minute, so a stream of
+// forged tokens can't turn into a stream of subrequests.
 let jwks: { keys: SigningKey[]; fetchedAt: number } | null = null;
 const REFETCH_FLOOR_MS = 60_000;
+const MAX_AGE_MS = 3_600_000;
 
 export function accessKeyFetcher(teamDomain: string): (kid: string) => Promise<SigningKey | null> {
   return async (kid) => {
+    if (jwks && Date.now() - jwks.fetchedAt > MAX_AGE_MS) jwks = null;
     const cached = jwks?.keys.find((k) => k.kid === kid);
     if (cached) return cached;
     if (jwks && Date.now() - jwks.fetchedAt < REFETCH_FLOOR_MS) return null;

@@ -1,6 +1,14 @@
 import type { Env } from "./env";
 import { GROUP_LABELS, TARGETS, targetFetch, type Target } from "./targets";
 
+/**
+ * Health checks. What the Status page shows as each target's *current* state
+ * is probed live, through the tunnel, on every request (probeAll). D1 only
+ * adds what can't be asked of a target: how long it has been in that state,
+ * its 24-hour uptime, and the last two hours of history, all recorded by the
+ * cron every two minutes (recordChecks).
+ */
+
 export type State = "up" | "degraded" | "down";
 
 export interface CheckResult {
@@ -60,6 +68,11 @@ async function probe(env: Env, target: Target): Promise<CheckResult> {
   }
 }
 
+/** Probe every target (or the given ones) in parallel, now. Writes nothing. */
+export function probeAll(env: Env, targets: readonly Target[] = TARGETS): Promise<CheckResult[]> {
+  return Promise.all(targets.map((t) => probe(env, t)));
+}
+
 const UPSERT_STATE = `
 INSERT INTO target_state (target_id, state, since, checked_at, code, latency_ms, detail)
 VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?6)
@@ -71,9 +84,9 @@ ON CONFLICT (target_id) DO UPDATE SET
   latency_ms = excluded.latency_ms,
   detail     = excluded.detail`;
 
-/** Probe every target (or the given ones) in parallel and record the results in one D1 batch. */
-export async function runChecks(env: Env, targets: readonly Target[] = TARGETS): Promise<CheckResult[]> {
-  const results = await Promise.all(targets.map((t) => probe(env, t)));
+/** Cron: probe everything and record it as history, in one D1 batch. */
+export async function recordChecks(env: Env): Promise<CheckResult[]> {
+  const results = await probeAll(env);
   const stmts = results.flatMap((r) => [
     env.DB.prepare("INSERT INTO checks (target_id, at, state, code, latency_ms, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(
       r.targetId, r.at, r.state, r.code, r.latencyMs, r.detail,
@@ -88,20 +101,41 @@ export async function pruneChecks(env: Env): Promise<void> {
   await env.DB.prepare("DELETE FROM checks WHERE at < ?1").bind(Date.now() - RETENTION_MS).run();
 }
 
-interface StateRow { target_id: string; state: State; since: number; checked_at: number; code: number | null; latency_ms: number | null; detail: string | null }
+export interface Recorded {
+  state: State;
+  since: number;
+  checkedAt: number;
+}
+
+/**
+ * How long the target has been in its live state, from what the cron last
+ * recorded. Same state: since the recorded start. Different: it changed
+ * after the last recorded check, which is the most that can honestly be said.
+ */
+export function sinceFor(live: State, recorded: Recorded | undefined): { since: number | null; changedAfter: number | null } {
+  if (!recorded) return { since: null, changedAfter: null };
+  if (recorded.state === live) return { since: recorded.since, changedAfter: null };
+  return { since: null, changedAfter: recorded.checkedAt };
+}
+
+interface StateRow { target_id: string; state: State; since: number; checked_at: number }
 interface UptimeRow { target_id: string; n: number; ok: number }
 interface HistoryRow { target_id: string; at: number; state: State }
 
-/** Everything the Status page shows, in one D1 round trip. */
+/** The Status page: live probes, plus recorded history, fetched in parallel. */
 export async function statusSummary(env: Env) {
   const now = Date.now();
-  const [states, uptime, history] = await env.DB.batch([
-    env.DB.prepare("SELECT * FROM target_state"),
-    env.DB.prepare("SELECT target_id, COUNT(*) AS n, SUM(state != 'down') AS ok FROM checks WHERE at > ?1 GROUP BY target_id").bind(now - 24 * 3600_000),
-    env.DB.prepare("SELECT target_id, at, state FROM checks WHERE at > ?1 ORDER BY at").bind(now - HISTORY_MS),
-  ]) as [D1Result<StateRow>, D1Result<UptimeRow>, D1Result<HistoryRow>];
+  const [live, [states, uptime, history]] = await Promise.all([
+    probeAll(env),
+    env.DB.batch([
+      env.DB.prepare("SELECT target_id, state, since, checked_at FROM target_state"),
+      env.DB.prepare("SELECT target_id, COUNT(*) AS n, SUM(state != 'down') AS ok FROM checks WHERE at > ?1 GROUP BY target_id").bind(now - 24 * 3600_000),
+      env.DB.prepare("SELECT target_id, at, state FROM checks WHERE at > ?1 ORDER BY at").bind(now - HISTORY_MS),
+    ]) as Promise<[D1Result<StateRow>, D1Result<UptimeRow>, D1Result<HistoryRow>]>,
+  ]);
 
-  const stateBy = new Map(states.results.map((r) => [r.target_id, r]));
+  const liveBy = new Map(live.map((r) => [r.targetId, r]));
+  const stateBy = new Map(states.results.map((r) => [r.target_id, { state: r.state, since: r.since, checkedAt: r.checked_at }]));
   const uptimeBy = new Map(uptime.results.map((r) => [r.target_id, r]));
   const historyBy = new Map<string, { at: number; state: State }[]>();
   for (const r of history.results) {
@@ -111,10 +145,10 @@ export async function statusSummary(env: Env) {
   }
 
   return {
-    generatedAt: now,
+    asOf: now,
     groups: GROUP_LABELS,
     targets: TARGETS.map((t) => {
-      const s = stateBy.get(t.id);
+      const l = liveBy.get(t.id)!;
       const u = uptimeBy.get(t.id);
       return {
         id: t.id,
@@ -122,12 +156,14 @@ export async function statusSummary(env: Env) {
         group: t.group,
         link: t.link ?? null,
         endpoint: `${t.address.ipv4 ?? t.address.hostname}:${t.port}`,
-        state: s?.state ?? null,
-        since: s?.since ?? null,
-        checkedAt: s?.checked_at ?? null,
-        code: s?.code ?? null,
-        latencyMs: s?.latency_ms ?? null,
-        detail: s?.detail ?? null,
+        // Live, from this request's probe.
+        state: l.state,
+        checkedAt: l.at,
+        code: l.code,
+        latencyMs: l.latencyMs,
+        detail: l.detail,
+        // Recorded by the cron.
+        ...sinceFor(l.state, stateBy.get(t.id)),
         uptime24h: u && u.n > 0 ? u.ok / u.n : null,
         history: historyBy.get(t.id) ?? [],
       };

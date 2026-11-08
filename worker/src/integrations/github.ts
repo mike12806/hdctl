@@ -1,12 +1,17 @@
 import { parse as parseYaml } from "yaml";
-import type { Env } from "../env";
+import type { Env, Runtime } from "../env";
 import { BadRequest, NotConfigured, UpstreamError } from "../errors";
+import { revalidatingFetch } from "../cache";
 
 /**
  * GitHub Actions for the repositories in GITHUB_REPOS: recent runs, the
  * workflow list, and workflow_dispatch with the workflow's own inputs. This is
  * the one integration that goes over the public internet (api.github.com),
  * not through the tunnel.
+ *
+ * Every GET is answered by GitHub on every request. KV only spares the body
+ * transfer: the cached copy is sent back as If-None-Match and used only on a
+ * 304 (see cache.ts), which GitHub also doesn't count against the rate limit.
  */
 
 export function repos(env: Env): string[] {
@@ -18,25 +23,44 @@ export function assertRepo(env: Env, repo: string): string {
   return repo;
 }
 
-async function gh<T>(env: Env, path: string, init: RequestInit = {}, as: "json" | "text" = "json"): Promise<T> {
+const JSON_ACCEPT = "application/vnd.github+json";
+
+async function gh<T>(rt: Runtime, path: string, init: RequestInit & { accept?: string } = {}, as: "json" | "text" = "json"): Promise<T> {
+  const { env } = rt;
   if (!env.GITHUB_TOKEN) throw new NotConfigured("GITHUB_TOKEN is not set; the deploy workflow copies it from Vault kv/ci/github.");
-  const res = await fetch(`https://api.github.com${path}`, {
-    ...init,
+  const { accept: acceptOpt, ...rest } = init;
+  const accept = acceptOpt ?? JSON_ACCEPT;
+  const method = rest.method ?? "GET";
+  const url = `https://api.github.com${path}`;
+  const req: RequestInit = {
+    ...rest,
     headers: {
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      Accept: "application/vnd.github+json",
+      Accept: accept,
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "hdctl",
-      ...init.headers,
+      ...rest.headers,
     },
-    signal: init.signal ?? AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) {
-    const text = (await res.text()).slice(0, 300);
-    throw new UpstreamError(`GitHub ${init.method ?? "GET"} ${path} -> HTTP ${res.status} ${text}`);
+    signal: rest.signal ?? AbortSignal.timeout(10_000),
+  };
+
+  let status: number;
+  let body: string;
+  if (method === "GET") {
+    // Keyed by URL and media type: the same URL answers differently per Accept.
+    const r = await revalidatingFetch(env.CACHE, `gh:v1:${accept}:${path}`, url, req, { waitUntil: rt.waitUntil });
+    ({ status, body } = r);
+  } else {
+    const res = await fetch(url, req);
+    status = res.status;
+    body = await res.text();
   }
-  if (res.status === 204) return null as T;
-  return (as === "text" ? await res.text() : await res.json()) as T;
+
+  if (status < 200 || status >= 300) {
+    throw new UpstreamError(`GitHub ${method} ${path} -> HTTP ${status} ${body.slice(0, 300)}`);
+  }
+  if (status === 204 || body === "") return null as T;
+  return (as === "text" ? body : JSON.parse(body)) as T;
 }
 
 interface Run {
@@ -57,10 +81,10 @@ interface Run {
   workflow_id: number;
 }
 
-export async function recentRuns(env: Env, perRepo = 15) {
+export async function recentRuns(rt: Runtime, perRepo = 15) {
   const lists = await Promise.all(
-    repos(env).map(async (repo) => {
-      const body = await gh<{ workflow_runs: Run[] }>(env, `/repos/${repo}/actions/runs?per_page=${perRepo}`);
+    repos(rt.env).map(async (repo) => {
+      const body = await gh<{ workflow_runs: Run[] }>(rt, `/repos/${repo}/actions/runs?per_page=${perRepo}`);
       return body.workflow_runs.map((r) => ({
         id: r.id,
         repo,
@@ -85,10 +109,10 @@ export async function recentRuns(env: Env, perRepo = 15) {
 
 interface Workflow { id: number; name: string; path: string; state: string; html_url: string }
 
-export async function listWorkflows(env: Env) {
+export async function listWorkflows(rt: Runtime) {
   const lists = await Promise.all(
-    repos(env).map(async (repo) => {
-      const body = await gh<{ workflows: Workflow[] }>(env, `/repos/${repo}/actions/workflows?per_page=100`);
+    repos(rt.env).map(async (repo) => {
+      const body = await gh<{ workflows: Workflow[] }>(rt, `/repos/${repo}/actions/workflows?per_page=100`);
       return body.workflows
         .filter((w) => w.state === "active" && w.path.startsWith(".github/workflows/"))
         .map((w) => ({ repo, id: w.id, name: w.name, file: w.path.replace(".github/workflows/", ""), url: w.html_url }));
@@ -141,19 +165,19 @@ function assertWorkflowFile(file: string): string {
   return file;
 }
 
-async function defaultBranch(env: Env, repo: string): Promise<string> {
-  return (await gh<{ default_branch: string }>(env, `/repos/${repo}`)).default_branch;
+async function defaultBranch(rt: Runtime, repo: string): Promise<string> {
+  return (await gh<{ default_branch: string }>(rt, `/repos/${repo}`)).default_branch;
 }
 
 /** The workflow's dispatch inputs as defined on the default branch, which is what a dispatch runs. */
-export async function workflowInputs(env: Env, repo: string, file: string) {
-  assertRepo(env, repo);
+export async function workflowInputs(rt: Runtime, repo: string, file: string) {
+  assertRepo(rt.env, repo);
   assertWorkflowFile(file);
-  const ref = await defaultBranch(env, repo);
+  const ref = await defaultBranch(rt, repo);
   const source = await gh<string>(
-    env,
+    rt,
     `/repos/${repo}/contents/.github/workflows/${file}?ref=${encodeURIComponent(ref)}`,
-    { headers: { Accept: "application/vnd.github.raw+json" } },
+    { accept: "application/vnd.github.raw+json" },
     "text",
   );
   const inputs = dispatchInputs(source);
@@ -161,8 +185,8 @@ export async function workflowInputs(env: Env, repo: string, file: string) {
 }
 
 /** Run a workflow on its default branch. Input values are sent as strings, as GitHub expects. */
-export async function dispatch(env: Env, repo: string, file: string, values: Record<string, unknown>) {
-  const { ref, dispatchable, inputs } = await workflowInputs(env, repo, file);
+export async function dispatch(rt: Runtime, repo: string, file: string, values: Record<string, unknown>) {
+  const { ref, dispatchable, inputs } = await workflowInputs(rt, repo, file);
   if (!dispatchable) throw new BadRequest(`${file} has no workflow_dispatch trigger`);
   const known = new Map(inputs.map((i) => [i.name, i]));
   const body: Record<string, string> = {};
@@ -175,6 +199,6 @@ export async function dispatch(env: Env, repo: string, file: string, values: Rec
     body[k] = s;
   }
   for (const i of inputs) if (i.required && !(i.name in body) && i.default === null) throw new BadRequest(`input "${i.name}" is required`);
-  await gh<null>(env, `/repos/${repo}/actions/workflows/${file}/dispatches`, { method: "POST", body: JSON.stringify({ ref, inputs: body }) });
+  await gh<null>(rt, `/repos/${repo}/actions/workflows/${file}/dispatches`, { method: "POST", body: JSON.stringify({ ref, inputs: body }) });
   return { repo, file, ref, inputs: body };
 }

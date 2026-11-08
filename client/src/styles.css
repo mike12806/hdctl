@@ -222,3 +222,11 @@ p { margin: 0 0 0.75rem; }
   .meter { width: 140px; }
   .run-meta { display: none; }
 }
+
+/* --- Freshness ---------------------------------------------------------------- */
+.asof { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.dot-pulse-soft { animation: soft 1s ease-in-out infinite; }
+@keyframes soft { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .dot-pulse-soft { animation: none; } }
+.banner { margin: 12px 24px 0; }
+.tick-live { outline: 1px solid var(--text); outline-offset: -1px; }

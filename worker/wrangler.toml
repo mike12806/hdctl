@@ -25,10 +25,14 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
 
-# Health checks every two minutes; see src/health.ts.
+# Records health-check history every two minutes; see src/health.ts. The
+# Status page itself always probes live.
 [triggers]
 crons = ["*/2 * * * *"]
 
+# D1 holds only what no backend API can give back: check history (for uptime
+# and the history strip) and the audit log. Everything a page shows about the
+# lab's current state is fetched live from its source on each request.
 [[d1_databases]]
 binding = "DB"
 database_name = "hdctl-db"
@@ -36,6 +40,16 @@ database_name = "hdctl-db"
 # (created on the first deploy with --location enam, next to the tunnel's
 # BOS/EWR connectors). Commit it here once it exists.
 migrations_dir = "migrations"
+
+# A cache that can't serve stale data: entries are only ever used after the
+# origin confirms them (HTTP If-None-Match -> 304), so KV's eventual
+# consistency can cost a refetch but never a stale answer. See src/cache.ts.
+# Only GitHub qualifies today; Argo CD and Proxmox give no validators, so they
+# are never cached.
+[[kv_namespaces]]
+binding = "CACHE"
+# id is written by the deploy workflow's "Resolve KV namespace" step (title
+# hdctl-cache, created on the first deploy). Commit it here once it exists.
 
 [observability]
 enabled = true
@@ -58,6 +72,9 @@ CF_ACCESS_AUD = "REPLACE_WITH_ACCESS_AUD"
 ALLOWED_EMAILS = "michaelefaherty@gmail.com"
 # Repositories whose Actions runs hdctl shows and can dispatch.
 GITHUB_REPOS = "mike12806/gh_hdc,mike12806/public-jobs"
+# The deployed build; deploy.yml overrides it with the git SHA (--var), and the
+# client is built with the same value. A mismatch tells an open tab to reload.
+BUILD_ID = "dev"
 
 # Secrets (never here), set by .github/workflows/deploy.yml from Vault:
 #   ARGOCD_TOKEN   API token of the Argo CD local account `hdctl`

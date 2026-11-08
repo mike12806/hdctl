@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
-import { api } from "./api";
+import { NEW_BUILD_EVENT, api } from "./api";
 import { StatusPage } from "./pages/Status";
 import { ArgoPage } from "./pages/Argo";
 import { ProxmoxPage } from "./pages/Proxmox";
@@ -17,8 +17,28 @@ const NAV = [
 
 export function App() {
   const [email, setEmail] = useState<string | null>(null);
+  const [newBuild, setNewBuild] = useState(false);
   useEffect(() => {
     api<{ email: string }>("/api/me").then((m) => setEmail(m.email), () => setEmail(null));
+  }, []);
+
+  // A deploy happened while this tab was open: reload onto the new bundle,
+  // unless a confirmation dialog is open (then ask, so nothing is lost).
+  useEffect(() => {
+    const onNewBuild = () => {
+      if (document.querySelector("dialog[open]")) setNewBuild(true);
+      else window.location.reload();
+    };
+    window.addEventListener(NEW_BUILD_EVENT, onNewBuild);
+    return () => window.removeEventListener(NEW_BUILD_EVENT, onNewBuild);
+  }, []);
+
+  // Back/forward navigation can restore this page from the browser's memory
+  // (bfcache) with whatever it showed back then. Reload it instead.
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => e.persisted && window.location.reload();
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
   }, []);
 
   return (
@@ -40,6 +60,15 @@ export function App() {
           {email ?? ""}
         </div>
       </nav>
+      {newBuild && (
+        <div className="note note-setup banner" role="status">
+          <strong>hdctl was updated</strong>
+          <span>Reload to load the new version.</span>
+          <button className="btn btn-sm btn-primary" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      )}
       <main className="content">
         <Routes>
           <Route path="/" element={<StatusPage />} />

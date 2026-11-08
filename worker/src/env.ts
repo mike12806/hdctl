@@ -2,6 +2,8 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  /** Revalidated HTTP cache; see cache.ts. Never read without the origin confirming it. */
+  CACHE: KVNamespace;
 
   CF_ACCESS_TEAM_DOMAIN: string;
   CF_ACCESS_AUD: string;
@@ -12,6 +14,9 @@ export interface Env {
   ARGOCD_TOKEN?: string;
   PVE_TOKENS?: string;
   GITHUB_TOKEN?: string;
+
+  /** Identifies the deployed build (the git SHA); the client reloads when it changes. */
+  BUILD_ID?: string;
 
   /** Local `wrangler dev` only: skips Access, and only for requests to localhost. */
   DEV_MODE?: string;
@@ -27,3 +32,9 @@ export interface Identity {
 }
 
 export type AppEnv = { Bindings: Env; Variables: { identity: Identity } };
+
+/** What an integration needs per request: bindings, and a way to finish work after the response. */
+export interface Runtime {
+  env: Env;
+  waitUntil: (p: Promise<unknown>) => void;
+}
