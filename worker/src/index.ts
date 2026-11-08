@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import type { AppEnv, Env, Identity } from "./env";
+import type { AppEnv, Env, Identity, Runtime } from "./env";
 import { AuthError, accessKeyFetcher, allowedEmails, tokenFrom, verifyAccessJwt } from "./auth";
 import { BadRequest, NotConfigured, UpstreamError } from "./errors";
 import { MissingBindingError } from "./targets";
-import { pruneChecks, runChecks, statusSummary } from "./health";
+import { pruneChecks, recordChecks, statusSummary } from "./health";
 import { audited, recentAudit } from "./audit";
 import * as argo from "./integrations/argo";
 import * as pve from "./integrations/proxmox";
@@ -11,7 +11,15 @@ import * as github from "./integrations/github";
 
 const app = new Hono<AppEnv>();
 
-// --- Every response: security headers -------------------------------------
+// --- Every response: security and caching headers ---------------------------
+// Browser caching, so nothing shown is ever an old copy:
+//   /api/*     no-store: never kept anywhere; the client also fetches with
+//              cache: "no-store".
+//   /assets/*  Vite's content-hashed files: a changed file gets a new name,
+//              so a year-long immutable cache can't serve a stale one.
+//   the rest   index.html (the SPA shell) and the favicon: no-cache, i.e.
+//              revalidated on every load, so a deploy is picked up at once.
+// X-Hdctl-Build lets an already-open tab notice a deploy and reload itself.
 app.use("*", async (c, next) => {
   await next();
   const h = c.res.headers;
@@ -19,7 +27,11 @@ app.use("*", async (c, next) => {
   h.set("X-Content-Type-Options", "nosniff");
   h.set("Referrer-Policy", "no-referrer");
   h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  if (c.req.path.startsWith("/api/")) h.set("Cache-Control", "no-store");
+  h.set("X-Hdctl-Build", c.env.BUILD_ID ?? "dev");
+  const path = c.req.path;
+  if (path.startsWith("/api/")) h.set("Cache-Control", "no-store");
+  else if (path.startsWith("/assets/") && c.res.ok) h.set("Cache-Control", "private, max-age=31536000, immutable");
+  else h.set("Cache-Control", "no-cache");
 });
 
 // --- Every request, assets included: a valid Access JWT ------------------
@@ -58,15 +70,15 @@ app.use("/api/*", async (c, next) => {
 });
 
 const who = (c: { get: (k: "identity") => Identity }) => c.get("identity");
+const runtime = (c: { env: Env; executionCtx: { waitUntil(p: Promise<unknown>): void } }): Runtime => ({
+  env: c.env,
+  waitUntil: (p) => c.executionCtx.waitUntil(p),
+});
 
 app.get("/api/me", (c) => c.json({ email: who(c).email }));
 
-// Status board
+// Status board: probed live on every request; D1 adds only recorded history.
 app.get("/api/status", async (c) => c.json(await statusSummary(c.env)));
-app.post("/api/status/check", async (c) => {
-  await runChecks(c.env);
-  return c.json(await statusSummary(c.env));
-});
 
 // Argo CD
 app.get("/api/argo/apps", async (c) => c.json(await argo.listApps(c.env)));
@@ -89,17 +101,17 @@ app.post("/api/proxmox/:host/:node/:type/:vmid/:action", async (c) => {
 });
 
 // GitHub Actions
-app.get("/api/github/runs", async (c) => c.json(await github.recentRuns(c.env)));
-app.get("/api/github/workflows", async (c) => c.json(await github.listWorkflows(c.env)));
+app.get("/api/github/runs", async (c) => c.json(await github.recentRuns(runtime(c))));
+app.get("/api/github/workflows", async (c) => c.json(await github.listWorkflows(runtime(c))));
 app.get("/api/github/workflows/:owner/:repo/:file", async (c) => {
   const { owner, repo, file } = c.req.param();
-  return c.json(await github.workflowInputs(c.env, `${owner}/${repo}`, file));
+  return c.json(await github.workflowInputs(runtime(c), `${owner}/${repo}`, file));
 });
 app.post("/api/github/workflows/:owner/:repo/:file/dispatch", async (c) => {
   const { owner, repo, file } = c.req.param();
   const body = (await c.req.json().catch(() => ({}))) as { inputs?: Record<string, unknown> };
   const full = github.assertRepo(c.env, `${owner}/${repo}`);
-  return c.json(await audited(c.env, who(c), "github.dispatch", `${full}/${file}`, body.inputs ?? {}, () => github.dispatch(c.env, full, file, body.inputs ?? {})));
+  return c.json(await audited(c.env, who(c), "github.dispatch", `${full}/${file}`, body.inputs ?? {}, () => github.dispatch(runtime(c), full, file, body.inputs ?? {})));
 });
 
 // Audit log
@@ -133,7 +145,7 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    const results = await runChecks(env);
+    const results = await recordChecks(env);
     const down = results.filter((r) => r.state !== "up").map((r) => `${r.targetId}=${r.state}`);
     console.log(JSON.stringify({ msg: "health checks", total: results.length, notUp: down }));
     // Pruning is cheap but needn't hold up the run.

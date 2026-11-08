@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api, post, type ArgoApp } from "../api";
 import { ago } from "../format";
 import { useNow, usePoll } from "../hooks";
-import { ConfirmDialog, Empty, ErrorNote, PageHeader, Pill, type Tone } from "../components/ui";
+import { AsOf, ConfirmDialog, Empty, ErrorNote, Loading, PageHeader, Pill, type Tone } from "../components/ui";
 
 const HEALTH: Record<string, Tone> = { Healthy: "good", Progressing: "info", Suspended: "muted", Degraded: "bad", Missing: "warn", Unknown: "muted" };
 const SYNC: Record<string, Tone> = { Synced: "good", OutOfSync: "warn", Unknown: "muted" };
@@ -11,7 +11,7 @@ const OP: Record<string, Tone> = { Succeeded: "good", Running: "info", Terminati
 type Pending = { app: ArgoApp; kind: "sync" | "refresh" | "hard-refresh" } | null;
 
 export function ArgoPage() {
-  const { data, error, reload } = usePoll(() => api<ArgoApp[]>("/api/argo/apps"), 30_000);
+  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<ArgoApp[]>("/api/argo/apps"), 30_000);
   const [filter, setFilter] = useState("");
   const [attention, setAttention] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
@@ -37,14 +37,26 @@ export function ArgoPage() {
 
   return (
     <>
-      <PageHeader title="Argo CD" subtitle={data ? `${data.length} applications · ${unhealthy} not healthy · ${outOfSync} out of sync` : "Loading…"}>
+      <PageHeader
+        title="Argo CD"
+        subtitle={
+          <>
+            <AsOf at={fetchedAt} loading={loading} />
+            {data ? ` · ${data.length} applications · ${unhealthy} not healthy · ${outOfSync} out of sync` : ""}
+          </>
+        }
+      >
         <input className="input" placeholder="Filter apps" value={filter} onChange={(e) => setFilter(e.target.value)} />
         <label className="toggle">
           <input type="checkbox" checked={attention} onChange={(e) => setAttention(e.target.checked)} /> Needs attention
         </label>
+        <button className="btn" onClick={() => void reload()} disabled={loading}>
+          Refresh
+        </button>
       </PageHeader>
 
       <ErrorNote error={error} />
+      {!data && !error && <Loading what="Argo CD applications" />}
 
       {data && !apps.length && <Empty>{attention ? "Everything is synced and healthy." : "No applications match."}</Empty>}
 

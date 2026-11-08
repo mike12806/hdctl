@@ -86,8 +86,12 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      # The same id goes into the bundle and the Worker (X-Hdctl-Build), so a
+      # tab still running the previous bundle notices the deploy and reloads.
       - name: Build client
         run: npm run build
+        env:
+          HDCTL_BUILD_ID: ${{ github.sha }}
 
       # The D1 database is looked up by name and created on the first deploy,
       # in Eastern North America next to the tunnel's BOS/EWR connectors. Its
@@ -112,12 +116,33 @@ jobs:
             echo "::notice::hdctl-db is $ID; add 'database_id = \"$ID\"' under database_name in worker/wrangler.toml"
           fi
 
+      # The KV cache (src/cache.ts), likewise looked up by title and created on
+      # the first deploy. Commit its id too once it exists.
+      - name: Resolve KV namespace
+        working-directory: worker
+        run: |
+          set -euo pipefail
+          resolve() { npx wrangler kv namespace list | jq -r '.[] | select(.title == "hdctl-cache" or .title == "hdctl-hdctl-cache") | .id' | head -1; }
+          ID=$(resolve)
+          if [ -z "$ID" ]; then
+            echo "Creating KV namespace hdctl-cache"
+            npx wrangler kv namespace create hdctl-cache >/dev/null
+            ID=$(resolve)
+          fi
+          [ -n "$ID" ] || { echo "::error::Could not find or create KV namespace hdctl-cache"; exit 1; }
+          if grep -q '^id = ' wrangler.toml; then
+            grep -q "^id = \"$ID\"" wrangler.toml || { echo "::error::wrangler.toml's KV id isn't hdctl-cache's ($ID)"; exit 1; }
+          else
+            sed -i "s/^binding = \"CACHE\"$/&\nid = \"$ID\"/" wrangler.toml
+            echo "::notice::hdctl-cache is $ID; add 'id = \"$ID\"' under binding = \"CACHE\" in worker/wrangler.toml"
+          fi
+
       - name: Apply D1 migrations
         run: npx wrangler d1 migrations apply hdctl-db --remote
         working-directory: worker
 
       - name: Deploy Worker
-        run: npx wrangler deploy
+        run: npx wrangler deploy --var "BUILD_ID:${{ github.sha }}"
         working-directory: worker
 
       # After the upload: secrets need the Worker to exist. Vault is the

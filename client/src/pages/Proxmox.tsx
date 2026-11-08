@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api, post, type PveGuest, type PveHost } from "../api";
 import { bytes, duration } from "../format";
 import { usePoll } from "../hooks";
-import { ConfirmDialog, Dot, Empty, ErrorNote, Meter, PageHeader, Pill, type Tone } from "../components/ui";
+import { AsOf, ConfirmDialog, Dot, Empty, ErrorNote, Loading, Meter, PageHeader, Pill, type Tone } from "../components/ui";
 
 type Action = "start" | "shutdown" | "reboot";
 type Pending = { host: PveHost; guest: PveGuest; action: Action } | null;
@@ -10,7 +10,7 @@ type Pending = { host: PveHost; guest: PveGuest; action: Action } | null;
 const STATUS: Record<string, Tone> = { running: "good", stopped: "muted", paused: "warn" };
 
 export function ProxmoxPage() {
-  const { data, error, reload } = usePoll(() => api<PveHost[]>("/api/proxmox"), 30_000);
+  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<PveHost[]>("/api/proxmox"), 30_000);
   const [filter, setFilter] = useState("");
   const [runningOnly, setRunningOnly] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
@@ -37,15 +37,24 @@ export function ProxmoxPage() {
     <>
       <PageHeader
         title="Proxmox"
-        subtitle={data ? `${totals.hostsUp}/${hosts.length} hosts answering · ${totals.running}/${totals.guests} guests running` : "Loading…"}
+        subtitle={
+          <>
+            <AsOf at={fetchedAt} loading={loading} />
+            {data ? ` · ${totals.hostsUp}/${hosts.length} hosts answering · ${totals.running}/${totals.guests} guests running` : ""}
+          </>
+        }
       >
         <input className="input" placeholder="Filter by name, vmid, tag" value={filter} onChange={(e) => setFilter(e.target.value)} />
         <label className="toggle">
           <input type="checkbox" checked={runningOnly} onChange={(e) => setRunningOnly(e.target.checked)} /> Running only
         </label>
+        <button className="btn" onClick={() => void reload()} disabled={loading}>
+          Refresh
+        </button>
       </PageHeader>
 
       <ErrorNote error={error} />
+      {!data && !error && <Loading what="Proxmox hosts" />}
       {done && (
         <div className="note note-ok" role="status">
           <strong>Sent</strong>

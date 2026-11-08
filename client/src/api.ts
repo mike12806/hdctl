@@ -6,11 +6,16 @@ export class ApiError extends Error {
   }
 }
 
+/** Fired when the Worker reports a different build than this bundle: a deploy happened. */
+export const NEW_BUILD_EVENT = "hdctl:new-build";
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       ...init,
+      // Never answered from the browser's HTTP cache (the Worker also sends no-store).
+      cache: "no-store",
       credentials: "same-origin",
       headers: {
         Accept: "application/json",
@@ -25,6 +30,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     // login page on another origin, which fetch reports as a network error.
     throw new ApiError("Can't reach hdctl. Your Access session may have expired: reload the page to sign in again.", 0);
   }
+  const build = res.headers.get("X-Hdctl-Build");
+  if (build && build !== __HDCTL_BUILD__) window.dispatchEvent(new CustomEvent(NEW_BUILD_EVENT, { detail: build }));
   const body = (await res.json().catch(() => null)) as { error?: string; setup?: boolean } | null;
   if (!res.ok) throw new ApiError(body?.error ?? res.statusText, res.status, body?.setup === true);
   return body as T;
@@ -43,18 +50,22 @@ export interface StatusTarget {
   group: string;
   link: string | null;
   endpoint: string;
-  state: State | null;
-  since: number | null;
-  checkedAt: number | null;
+  /** Live: probed by the Worker for this very response. */
+  state: State;
+  checkedAt: number;
   code: number | null;
   latencyMs: number | null;
   detail: string | null;
+  /** Recorded: when the target entered its live state, if the cron saw that. */
+  since: number | null;
+  /** Recorded: the live state differs from the last recorded check, so it changed after this. */
+  changedAfter: number | null;
   uptime24h: number | null;
   history: { at: number; state: State }[];
 }
 
 export interface StatusSummary {
-  generatedAt: number;
+  asOf: number;
   groups: Record<string, string>;
   targets: StatusTarget[];
 }
