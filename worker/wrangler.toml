@@ -218,4 +218,14 @@ remote = true
 binding = "LITELLM"
 service_id = "01a1b8ad-db21-7e52-adc5-ab1976560fcd"
 remote = true
+
+[[vpc_services]]
+binding = "PROMETHEUS"
+service_id = "01a1bc8c-492a-7d92-9fdb-79a787f468e0"
+remote = true
+
+[[vpc_services]]
+binding = "ALERTMANAGER"
+service_id = "01a1bc8c-4f9f-7943-819f-98e721a09a96"
+remote = true
 # END vpc_services

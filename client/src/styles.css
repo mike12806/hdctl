@@ -210,6 +210,24 @@ p { margin: 0 0 0.75rem; }
 .workflow { justify-content: space-between; }
 .workflows { max-height: 70vh; overflow-y: auto; }
 
+/* --- Metrics ----------------------------------------------------------------- */
+.subhead { font-size: 13px; font-weight: 600; margin: 14px 0 8px; color: var(--muted); }
+.subgroup:first-child .subhead { margin-top: 0; }
+.list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.list-item { display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.list-item > .pill { margin-top: 2px; }
+.list-item-volume { align-items: center; }
+.list-item:last-child { border-bottom: 0; }
+.list-main { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.list-side { white-space: nowrap; }
+.list-item-volume .meter { width: 220px; flex: none; }
+.card .meter { width: 100%; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); min-width: 0; }
+.tile-label { font-size: 12px; color: var(--muted); }
+.tile-value { font-family: var(--mono); font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile-note { font-size: 11px; color: var(--muted); }
+
 /* --- Dialog ------------------------------------------------------------------ */
 .dialog {
   width: min(520px, calc(100vw - 32px)); padding: 22px; border-radius: 14px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text);
@@ -248,7 +266,7 @@ p { margin: 0 0 0.75rem; }
   .topbar { backdrop-filter: none; background: var(--bg); }
   .tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px;
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px;
     padding: 6px var(--pad-right) calc(6px + env(safe-area-inset-bottom)) var(--pad-left);
     background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border-top: 1px solid var(--border);
@@ -268,8 +286,13 @@ p { margin: 0 0 0.75rem; }
 
   /* Host CPU/RAM bars share a full-width row so their labels aren't cut. */
   .host-meters { flex: 1 1 100%; }
-  .meter { flex: 1 1 130px; width: auto; min-width: 0; }
+  .host-meters .meter { flex: 1 1 130px; width: auto; min-width: 0; }
   .run { flex-wrap: wrap; }
+  .list-item { flex-wrap: wrap; }
+  .list-side { flex: 1 1 100%; }
+  .list-item-volume .meter { width: 100%; flex: 1 1 100%; }
+  .tiles { grid-template-columns: repeat(auto-fill, minmax(min(100%, 130px), 1fr)); gap: 8px; }
+  .tile-value { font-size: 18px; }
   .run-meta { order: 3; flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; gap: 4px 12px; align-items: center; text-align: left; }
 
   .dialog-actions .btn { flex: 1; }
