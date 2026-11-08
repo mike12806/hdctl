@@ -1,0 +1,150 @@
+name: Deploy
+
+# On merge to main (or by hand): test, then deploy the Worker, its assets, D1
+# migrations, and its secrets. Every credential comes from Vault through the
+# shared public-jobs vault-secrets action (GitHub OIDC -> Tailscale
+# tag:ci-vault -> Vault role hdctl-deploy, defined in gh_hdc vault/).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: 894cecec36bc067ca606c3834d8ae7bc # not secret
+
+jobs:
+  test:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run vpc:check
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # Tailscale + Vault logins through GitHub OIDC
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Before anything else: deploying without the Access audience would put
+      # up a Worker that refuses every request, which is safe but pointless.
+      - name: Check the Access audience is configured
+        run: |
+          if grep -q 'REPLACE_WITH_ACCESS_AUD' worker/wrangler.toml; then
+            echo "::error::CF_ACCESS_AUD in worker/wrangler.toml is still the placeholder. Merge the gh_hdc PR that adds the hdctl Access app, then copy the AUD tag its cloudflare-access workflow prints into wrangler.toml."
+            exit 1
+          fi
+
+      - name: Read secrets from Vault
+        uses: mike12806/public-jobs/.github/actions/vault-secrets@837e77b774fe3d096f2c58f0f4e48814c9ad2559 # main
+        with:
+          role: hdctl-deploy
+          hostname: github-hdctl-deploy
+          secrets: |
+            kv/data/github/hdctl/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
+            kv/data/github/hdctl/argo ARGOCD_TOKEN | ARGOCD_TOKEN ;
+            kv/data/ci/github GH_HDC_PAT | HDCTL_GITHUB_TOKEN ;
+            kv/data/ci/proxmox PVE_TOKEN_ID | PVE_TOKEN_ID ;
+            kv/data/ci/proxmox PVE_SECRET | PVE_SECRET ;
+            kv/data/ci/proxmox PVE2_TOKEN_ID | PVE2_TOKEN_ID ;
+            kv/data/ci/proxmox PVE2_SECRET | PVE2_SECRET ;
+            kv/data/ci/proxmox PVE3_TOKEN_ID | PVE3_TOKEN_ID ;
+            kv/data/ci/proxmox PVE3_SECRET | PVE3_SECRET ;
+            kv/data/ci/proxmox PVE4_TOKEN_ID | PVE4_TOKEN_ID ;
+            kv/data/ci/proxmox PVE4_SECRET | PVE4_SECRET ;
+            kv/data/ci/proxmox PVE5_TOKEN_ID | PVE5_TOKEN_ID ;
+            kv/data/ci/proxmox PVE5_SECRET | PVE5_SECRET ;
+            kv/data/ci/proxmox PVE6_TOKEN_ID | PVE6_TOKEN_ID ;
+            kv/data/ci/proxmox PVE6_SECRET | PVE6_SECRET ;
+            kv/data/ci/proxmox PVE7_TOKEN_ID | PVE7_TOKEN_ID ;
+            kv/data/ci/proxmox PVE7_SECRET | PVE7_SECRET
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build client
+        run: npm run build
+
+      # The D1 database is looked up by name and created on the first deploy,
+      # in Eastern North America next to the tunnel's BOS/EWR connectors. Its
+      # id is written into this run's copy of wrangler.toml; commit it once
+      # it exists so this step only ever finds it.
+      - name: Resolve D1 database
+        working-directory: worker
+        run: |
+          set -euo pipefail
+          resolve() { npx wrangler d1 list --json | jq -r '.[] | select(.name == "hdctl-db") | .uuid' | head -1; }
+          ID=$(resolve)
+          if [ -z "$ID" ]; then
+            echo "Creating D1 database hdctl-db"
+            npx wrangler d1 create hdctl-db --location enam
+            ID=$(resolve)
+          fi
+          [ -n "$ID" ] || { echo "::error::Could not find or create D1 database hdctl-db"; exit 1; }
+          if grep -q '^database_id' wrangler.toml; then
+            grep -q "^database_id = \"$ID\"" wrangler.toml || { echo "::error::wrangler.toml's database_id isn't hdctl-db's ($ID)"; exit 1; }
+          else
+            sed -i "s/^database_name = \"hdctl-db\"$/&\ndatabase_id = \"$ID\"/" wrangler.toml
+            echo "::notice::hdctl-db is $ID; add 'database_id = \"$ID\"' under database_name in worker/wrangler.toml"
+          fi
+
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply hdctl-db --remote
+        working-directory: worker
+
+      - name: Deploy Worker
+        run: npx wrangler deploy
+        working-directory: worker
+
+      # After the upload: secrets need the Worker to exist. Vault is the
+      # source of truth, so rotating any of these is "update Vault, re-run".
+      - name: Sync Worker secrets
+        working-directory: worker
+        run: |
+          set -euo pipefail
+          umask 077
+          PVE_TOKENS=$(jq -cn \
+            --arg pve  "$PVE_TOKEN_ID=$PVE_SECRET" \
+            --arg pve2 "$PVE2_TOKEN_ID=$PVE2_SECRET" \
+            --arg pve3 "$PVE3_TOKEN_ID=$PVE3_SECRET" \
+            --arg pve4 "$PVE4_TOKEN_ID=$PVE4_SECRET" \
+            --arg pve5 "$PVE5_TOKEN_ID=$PVE5_SECRET" \
+            --arg pve6 "$PVE6_TOKEN_ID=$PVE6_SECRET" \
+            --arg pve7 "$PVE7_TOKEN_ID=$PVE7_SECRET" \
+            '{pve: $pve, pve2: $pve2, pve3: $pve3, pve4: $pve4, pve5: $pve5, pve6: $pve6, pve7: $pve7}')
+          echo "::add-mask::$PVE_TOKENS"
+          jq -n \
+            --arg ARGOCD_TOKEN "$ARGOCD_TOKEN" \
+            --arg PVE_TOKENS "$PVE_TOKENS" \
+            --arg GITHUB_TOKEN "$HDCTL_GITHUB_TOKEN" \
+            '{ARGOCD_TOKEN: $ARGOCD_TOKEN, PVE_TOKENS: $PVE_TOKENS, GITHUB_TOKEN: $GITHUB_TOKEN} | with_entries(select(.value != ""))' \
+            > "$RUNNER_TEMP/secrets.json"
+          for k in ARGOCD_TOKEN PVE_TOKENS GITHUB_TOKEN; do
+            jq -e --arg k "$k" 'has($k)' "$RUNNER_TEMP/secrets.json" >/dev/null || echo "::warning::$k is empty in Vault; that panel will show a setup note"
+          done
+          npx wrangler secret bulk "$RUNNER_TEMP/secrets.json"
+          rm -f "$RUNNER_TEMP/secrets.json"
