@@ -34,3 +34,17 @@ export function pct(fraction: number | null, digits = 1): string {
 export function time(at: number | string): string {
   return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
+
+/** Bytes per second -> "12.3 Mbps". */
+export function bitrate(bytesPerSecond: number | null): string {
+  if (bytesPerSecond === null) return "–";
+  const bits = bytesPerSecond * 8;
+  if (bits >= 1e9) return `${(bits / 1e9).toFixed(2)} Gbps`;
+  if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mbps`;
+  return `${Math.round(bits / 1e3)} kbps`;
+}
+
+/** 186542 -> "186,542"; null -> "–". */
+export function num(n: number | null): string {
+  return n === null ? "–" : Math.round(n).toLocaleString();
+}

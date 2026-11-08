@@ -163,3 +163,81 @@ export interface AuditEntry {
   result: string | null;
   finished_at: number | null;
 }
+
+// --- /api/metrics: Prometheus and Alertmanager --------------------------------
+
+/** One part of the Metrics page: its data, or the error that stopped it. Never both. */
+export interface Section<T> {
+  data: T | null;
+  error: string | null;
+}
+
+export interface Alert {
+  name: string;
+  severity: string;
+  state: "firing" | "silenced" | "inhibited";
+  summary: string | null;
+  description: string | null;
+  where: string | null;
+  startsAt: string;
+}
+
+export interface Machine {
+  name: string;
+  kind: "host" | "k8s";
+  instance: string;
+  up: boolean;
+  ready: boolean | null;
+  cpu: number | null;
+  cores: number | null;
+  mem: number | null;
+  memTotal: number | null;
+  disk: number | null;
+  diskTotal: number | null;
+  load5: number | null;
+  uptime: number | null;
+}
+
+export interface Workloads {
+  podsRunning: number | null;
+  podsTotal: number | null;
+  problems: { kind: string; namespace: string; name: string; detail: string }[];
+  restarts: { namespace: string; pod: string; container: string; count: number }[];
+}
+
+export interface Volumes {
+  count: number;
+  fullest: { namespace: string; claim: string; used: number; capacity: number | null }[];
+}
+
+export interface Network {
+  wans: { device: string; port: string; downloadBps: number | null; uploadBps: number | null; latencyMs: number | null; availability: number | null }[];
+  wifiClients: number | null;
+  wiredClients: number | null;
+  vpnClients: number | null;
+  guests: number | null;
+  accessPoints: number | null;
+  disconnectedDevices: number | null;
+  internetLatencyMs: number | null;
+  speedtest: { downMbps: number | null; upMbps: number | null; pingMs: number | null };
+}
+
+export interface PiHole {
+  host: string;
+  enabled: boolean | null;
+  queriesToday: number | null;
+  blockedToday: number | null;
+  blockedPercent: number | null;
+  clients: number | null;
+}
+
+export interface MetricsOverview {
+  asOf: number;
+  alerts: Section<Alert[]>;
+  machines: Section<Machine[]>;
+  workloads: Section<Workloads>;
+  volumes: Section<Volumes>;
+  network: Section<Network>;
+  dns: Section<PiHole[]>;
+  scrape: Section<{ total: number | null; down: { job: string; instance: string }[] }>;
+}

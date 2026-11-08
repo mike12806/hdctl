@@ -8,6 +8,7 @@ import { audited, recentAudit } from "./audit";
 import * as argo from "./integrations/argo";
 import * as pve from "./integrations/proxmox";
 import * as github from "./integrations/github";
+import * as prometheus from "./integrations/prometheus";
 
 const app = new Hono<AppEnv>();
 
@@ -79,6 +80,9 @@ app.get("/api/me", (c) => c.json({ email: who(c).email }));
 
 // Status board: probed live on every request; D1 adds only recorded history.
 app.get("/api/status", async (c) => c.json(await statusSummary(c.env)));
+
+// Metrics: Prometheus and Alertmanager, queried live; each section succeeds or fails on its own.
+app.get("/api/metrics", async (c) => c.json(await prometheus.overview(c.env)));
 
 // Argo CD
 app.get("/api/argo/apps", async (c) => c.json(await argo.listApps(c.env)));
