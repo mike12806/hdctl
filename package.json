@@ -1,0 +1,19 @@
+{
+  "name": "hdctl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Control plane for the home data center: one Cloudflare Worker, a React app, and D1, behind Cloudflare Access.",
+  "workspaces": [
+    "client",
+    "worker"
+  ],
+  "scripts": {
+    "dev": "npm run build -w client && npm run dev -w worker",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w client",
+    "typecheck": "npm run typecheck -w worker && npm run typecheck -w client",
+    "test": "npm run test -w worker",
+    "vpc:sync": "node infra/vpc-sync.mjs",
+    "vpc:check": "node infra/vpc-sync.mjs --check"
+  }
+}
