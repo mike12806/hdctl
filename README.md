@@ -16,7 +16,7 @@ history and the audit log), and KV is a cache that can't serve stale data (see
 isn't itself in the cluster.
 
 <p>
-  <img src="docs/status.jpg" alt="Status page: 27 endpoints, all up, grouped by Proxmox hosts and Vault" width="49%">
+  <img src="docs/status.jpg" alt="Status page: live as of 8:30 PM, 27 endpoints up, grouped by Proxmox hosts and Vault" width="49%">
   <img src="docs/proxmox.jpg" alt="Proxmox page: per-host CPU and RAM meters and a guest table with reboot and shut down buttons" width="49%">
 </p>
 
