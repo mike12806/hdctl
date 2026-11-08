@@ -1,0 +1,7 @@
+# Copy to worker/.dev.vars (git-ignored) for `npm run dev -w worker`.
+# DEV_MODE skips the Access check, and only for requests to localhost.
+DEV_MODE=true
+# JSON keyed by Proxmox target id; values are USER@REALM!TOKENID=SECRET
+PVE_TOKENS='{"pve":"","pve2":"","pve3":"","pve4":"","pve5":"","pve6":"","pve7":""}'
+GITHUB_TOKEN=
+ARGOCD_TOKEN=
