@@ -102,6 +102,29 @@ trip (`DB.batch()`), run in parallel with the live probes, and a cron run
 writes all 54 rows in one batch. Measured through `wrangler dev`, probing all
 27 targets live took about 0.5 s, nearly all of it the tunnel hop to the LAN.
 
+### What it costs
+
+Nothing beyond the Workers Paid plan the account already has. Every meter
+stays a small fraction of what that plan includes:
+
+- **Slow backends cost nothing.** Workers bill CPU time, not wall time: waiting
+  on a slow target, the tunnel or GitHub isn't billed, and neither are
+  subrequests. A slow target only makes its request slower: a probe gives up
+  after 8 s, an API call after 10 s.
+- **Static assets are free**, Workers VPC is free during its open beta, and
+  requests Access refuses never reach the Worker.
+
+| Meter | hdctl's use | Included per month |
+|---|---|---|
+| Worker requests | cron 21,600 a month; a tab polling every 30 s adds 2,880 a day | 10 million |
+| CPU time | a few ms a request (JWT check, JSON) | 30 million ms |
+| D1 rows written | about 200 a cron run (insert + its two indexes, upsert, prune): ~4.3 million a month | 50 million |
+| D1 rows read | about 21,000 a Status refresh (24 h of checks for uptime, 2 h for history): ~1.8 billion a month with a Status tab open around the clock | 25 billion |
+| KV | GitHub panel only: a read per call, a write only when GitHub's answer changed | 10 million reads, 1 million writes |
+
+It would not fit the Workers Free plan: D1 there stops at 5 million rows read
+and 100,000 written a day, and the cron alone writes about 144,000.
+
 ---
 
 ## Where the data comes from
@@ -313,6 +336,8 @@ flowchart LR
    argocd login argo.mfaherty.net --sso
    vault kv put kv/github/hdctl/argo ARGOCD_TOKEN="$(argocd account generate-token --account hdctl)"
    ```
+   The deploy reads both keys in one Vault step, so it fails until this one
+   exists too.
 5. **Merge to `main`.** `deploy.yml` builds, creates `hdctl-db` and the KV
    namespace `hdctl-cache` if they don't exist, applies migrations, deploys,
    and syncs the secrets.
@@ -392,11 +417,11 @@ worker/
     audit.ts          audited() wrapper + audit log reads
     targets.ts        target catalog + VPC fetch helper
     integrations/     argo.ts · proxmox.ts · github.ts
-  test/               vitest: JWT verification, the never-stale cache, classification,
-                      input parsing, validation
+  test/               vitest, see "Tests" below
 client/
   src/pages/          Status · Argo · Proxmox · Actions · Audit
   src/components/     pills, meters, confirm dialog
+  test/               vitest + jsdom: polling, the API wrapper, reload on deploy
 .github/workflows/    ci.yml (PRs) · deploy.yml (main)
 ```
 
@@ -429,6 +454,35 @@ npm run dev:client                             # optional: Vite hot reload on :5
 dev script passes `--local-upstream localhost` so that holds under `wrangler
 dev`. In production the hostname is never `localhost`, so the flag does nothing
 there even if it were set.
+
+### Tests
+
+```bash
+npm test          # worker and client, about 10 s, no network or credentials
+```
+
+The worker tests run the real Worker (routes, Access check, CSRF guard,
+headers, error mapping) in-process against SQLite with the real migrations
+(D1 is SQLite), one fake VPC binding per target that records every call, and a
+fake api.github.com. They pin down what matters most:
+
+- nothing is served without a valid Access token, assets included, and a
+  placeholder AUD lets nothing in;
+- a state-changing call without the `X-Hdctl` header, or from another origin,
+  is refused before anything is sent or recorded;
+- API responses are `no-store`, the app shell `no-cache`, hashed assets
+  `immutable`, and every response names the build;
+- the Status page shows each target as probed for that request, even when the
+  last recorded check says otherwise, and the cron keeps `since` until a
+  state changes;
+- an Argo sync never prunes, a guest action reaches only its own host with its
+  own token, a dispatch only sends known inputs, and each is audited;
+- KV answers only after GitHub's 304; an outage is an error, never the cached copy.
+
+The client tests cover the polling hook (a failed refresh clears the data, data
+older than two intervals is withheld, a late answer can't replace a newer one,
+no polling while hidden), `cache: "no-store"` and the build check on every
+call, and the reload on deploy and on a back/forward-cache restore.
 
 ## Operations
 

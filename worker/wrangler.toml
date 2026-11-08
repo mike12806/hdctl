@@ -66,7 +66,7 @@ CF_ACCESS_TEAM_DOMAIN = "mfaherty.cloudflareaccess.com"
 # AUD tag of the Access app for hdctl.mfaherty.net. Every run of gh_hdc's
 # cloudflare-access workflow prints it in the job summary. The deploy fails
 # while this is still the placeholder.
-CF_ACCESS_AUD = "REPLACE_WITH_ACCESS_AUD"
+CF_ACCESS_AUD = "e4caaecc9c2ff4ba8fd37f954797bd6a6b70b0aaa294d458b2db38648b09590a"
 # Belt and braces on top of the Access policy: the JWT's email must be one of
 # these. Comma-separated.
 ALLOWED_EMAILS = "michaelefaherty@gmail.com"

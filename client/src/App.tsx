@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { NEW_BUILD_EVENT, api } from "./api";
+import { reloadPage } from "./reload";
 import { StatusPage } from "./pages/Status";
 import { ArgoPage } from "./pages/Argo";
 import { ProxmoxPage } from "./pages/Proxmox";
@@ -27,7 +28,7 @@ export function App() {
   useEffect(() => {
     const onNewBuild = () => {
       if (document.querySelector("dialog[open]")) setNewBuild(true);
-      else window.location.reload();
+      else reloadPage();
     };
     window.addEventListener(NEW_BUILD_EVENT, onNewBuild);
     return () => window.removeEventListener(NEW_BUILD_EVENT, onNewBuild);
@@ -36,7 +37,7 @@ export function App() {
   // Back/forward navigation can restore this page from the browser's memory
   // (bfcache) with whatever it showed back then. Reload it instead.
   useEffect(() => {
-    const onShow = (e: PageTransitionEvent) => e.persisted && window.location.reload();
+    const onShow = (e: PageTransitionEvent) => e.persisted && reloadPage();
     window.addEventListener("pageshow", onShow);
     return () => window.removeEventListener("pageshow", onShow);
   }, []);
@@ -64,7 +65,7 @@ export function App() {
         <div className="note note-setup banner" role="status">
           <strong>hdctl was updated</strong>
           <span>Reload to load the new version.</span>
-          <button className="btn btn-sm btn-primary" onClick={() => window.location.reload()}>
+          <button className="btn btn-sm btn-primary" onClick={reloadPage}>
             Reload
           </button>
         </div>
