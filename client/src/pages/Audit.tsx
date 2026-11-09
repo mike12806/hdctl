@@ -6,14 +6,14 @@ import { AsOf, Empty, ErrorNote, Loading, PageHeader, Pill, type Tone } from "..
 const STATUS: Record<AuditEntry["status"], Tone> = { ok: "good", error: "bad", started: "info" };
 
 export function AuditPage() {
-  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<AuditEntry[]>("/api/audit"), 30_000);
+  const { data, fetchedAt, error, loading, reload, intervalMs } = usePoll(() => api<AuditEntry[]>("/api/audit"), 30_000);
   return (
     <>
       <PageHeader
         title="Audit log"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} every={30_000} /> · every action hdctl has taken on another system, newest first (last 200)
+            <AsOf at={fetchedAt} loading={loading} every={intervalMs} /> · every action hdctl has taken on another system, newest first (last 200)
           </>
         }
       >

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useIdle } from "./idle";
 
 /**
  * Load something now and every `intervalMs` after, pausing while the tab is
- * hidden and refreshing the moment it's visible again.
+ * hidden and refreshing the moment it's visible again. It also pauses once
+ * the tab has been idle (no input for 15 minutes, see idle.ts) and loads
+ * fresh data on the next input, so a page left open costs nothing.
  *
  * Never shows stale data:
  *   - a failed refresh clears the data and reports the error, rather than
@@ -32,7 +35,12 @@ export function usePoll<T>(load: () => Promise<T>, intervalMs: number, maxAgeMs 
     }
   }, []);
 
+  const idle = useIdle();
+
+  // Runs on mount and whenever the tab stops being idle: a fresh load at once,
+  // then one every interval while the tab is visible. Nothing while idle.
   useEffect(() => {
+    if (idle) return;
     void reload();
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") void reload();
@@ -43,7 +51,7 @@ export function usePoll<T>(load: () => Promise<T>, intervalMs: number, maxAgeMs 
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [reload, intervalMs]);
+  }, [reload, intervalMs, idle]);
 
   const fresh = result.fetchedAt !== null && now - result.fetchedAt <= maxAgeMs;
   return {
@@ -52,6 +60,10 @@ export function usePoll<T>(load: () => Promise<T>, intervalMs: number, maxAgeMs 
     error: result.error,
     loading,
     reload,
+    /** How often it refreshes while in use, for the page's indicator. */
+    intervalMs,
+    /** True while polling is paused because nobody is using the tab. */
+    paused: idle,
   };
 }
 
