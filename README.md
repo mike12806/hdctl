@@ -332,14 +332,15 @@ flowchart LR
    ```bash
    vault kv put kv/github/hdctl/cloudflare CLOUDFLARE_API_TOKEN=…
    ```
-4. **Argo CD token** for the `hdctl` account, once `deploy-argo-cd` has
-   applied the values:
+4. **Argo CD key** for the `hdctl` account, once `deploy-argo-cd` has
+   applied the values. In the Argo UI open **Settings › Accounts › hdctl**
+   (https://argo.mfaherty.net/settings/accounts/hdctl), leave **Expires In**
+   empty (the key then never expires) and click **Generate New**. Store it:
    ```bash
-   argocd login argo.mfaherty.net --sso
-   vault kv put kv/github/hdctl/argo ARGOCD_TOKEN="$(argocd account generate-token --account hdctl)"
+   vault kv put kv/github/hdctl/argo ARGOCD_TOKEN=…
    ```
    The deploy reads both keys in one Vault step, so it fails until this one
-   exists too.
+   exists too. To revoke the key, delete it on the same Argo page.
 5. **Merge to `main`.** `deploy.yml` builds, creates `hdctl-db` and the KV
    namespace `hdctl-cache` if they don't exist, applies migrations, deploys,
    and syncs the secrets.
