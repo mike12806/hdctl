@@ -289,3 +289,23 @@ export interface UnifiOverview {
   devices: Section<UnifiDevice[]>;
   clients: Section<UnifiClient[]>;
 }
+
+// --- /api/kuma: Uptime Kuma's own /metrics ----------------------------------------
+
+export type MonitorStatus = "up" | "down" | "pending" | "maintenance" | "unknown";
+
+export interface KumaMonitor {
+  name: string;
+  type: string | null;
+  target: string | null;
+  status: MonitorStatus;
+  responseTimeMs: number | null;
+  certDaysRemaining: number | null;
+  certValid: boolean | null;
+}
+
+export interface KumaOverview {
+  asOf: number;
+  counts: Record<MonitorStatus, number>;
+  monitors: KumaMonitor[];
+}

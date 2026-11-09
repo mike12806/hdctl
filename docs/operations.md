@@ -75,6 +75,24 @@ are needed once, in this order:
    `vpc:check` fails until then. The old `hdctl-unifi` service (port 80) can
    be deleted afterwards.
 
+### Uptime: Uptime Kuma's API
+
+The Uptime page reads Kuma's own `/metrics` endpoint at `192.168.9.7:3001`
+(plain HTTP on the LAN, like Gitea). It doesn't go through
+`health.mfaherty.net`, which sits behind Access. Kuma's Socket.IO API would
+need an admin username and password plus a long-lived connection, so hdctl
+uses the read-only API key instead.
+
+1. **An API key.** In Kuma, *Settings › API Keys › Add API Key* (no
+   expiry, or rotate it in Vault before it lapses), and store it:
+   ```bash
+   vault kv put kv/github/hdctl/kuma KUMA_API_KEY=uk1_…
+   ```
+   Creating the first key turns off Basic-auth username/password access to
+   `/metrics`. Anything else that scrapes it has to use a key too.
+2. **The VPC Service.** `npm run vpc:sync` creates `hdctl-kuma`
+   (192.168.9.7:3001) and regenerates the binding; commit both files.
+
 ## Deploy pipeline
 
 ```mermaid
@@ -86,7 +104,7 @@ flowchart LR
   aud -->|yes| vault["vault-secrets<br/>GitHub OIDC → Tailscale tag:ci-vault<br/>→ Vault role hdctl-deploy"]
   vault --> d1["resolve / create hdctl-db + hdctl-cache<br/>apply migrations"]
   d1 --> dep["wrangler deploy --var BUILD_ID:sha<br/>(Worker + assets built with the same id)"]
-  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN · UNIFI_API_KEY"]
+  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN · UNIFI_API_KEY · KUMA_API_KEY"]
 ```
 
 The Vault role `hdctl-deploy` reads `kv/github/hdctl/*`, `kv/ci/proxmox` and
@@ -109,7 +127,7 @@ Service.
 | Backup | PBS, PDM | `.37:8007`, `.89:8443`, Let's Encrypt certificates |
 | Storage | truenas1, truenas2 | `.108:443`, `.85:443` |
 | Network | UDM | `192.168.1.1:443`, TLS for `unifi.mfaherty.net` (Cloudflare Origin CA certificate) |
-| Apps (off-cluster) | Home Assistant, Gitea | `192.168.5.169:8123`, `192.168.9.3:3000` |
+| Apps (off-cluster) | Home Assistant, Gitea, Uptime Kuma | `192.168.5.169:8123`, `192.168.9.3:3000`, `192.168.9.7:3001` |
 | Cluster apps | Argo CD, Harbor, Immich, Authentik, Paperless, Emby, Open WebUI, LiteLLM | `*.svc.cluster.local` |
 
 Argo CD's and Gitea's VPC Services are shared with gh_hdc's `argo-webhook` and

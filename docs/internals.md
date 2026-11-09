@@ -17,6 +17,7 @@ metrics. (This rule is also in `CLAUDE.md`.)
 | Argo CD | Argo CD API | **No**: it sends no validators, so a copy could never be confirmed | — |
 | Proxmox | Each host's API (`/cluster/resources`) | **No**, same reason | — |
 | UniFi | The UDM's Network API (`/proxy/network/api/s/default/stat/health`, `stat/device`, `stat/sta`), with a UniFi API key | **No**, same reason. Each of the three shows its own error if it fails | — |
+| Uptime | Uptime Kuma's own `/metrics` (monitor status, response time, certificate expiry), with a Kuma API key, read on every request | **No**, same reason | — |
 | Metrics | Prometheus (`/api/v1/query`, one PromQL query per section) and Alertmanager (`/api/v2/alerts`), through their own VPC Services | **No**, same reason. A section whose query fails shows its error and no data; the rest still render | — |
 | GitHub runs, workflows, dispatch inputs | GitHub API | **KV, revalidated on every read** | — |
 | Audit | D1 | — | `audit_log` |
