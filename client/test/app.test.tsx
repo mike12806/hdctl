@@ -5,9 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/reload", () => ({ reloadPage: vi.fn() }));
 
 import { reloadPage } from "../src/reload";
-import { NEW_BUILD_EVENT, type KumaOverview, type StatusSummary } from "../src/api";
+import { NEW_BUILD_EVENT, type StatusSummary } from "../src/api";
 import { App } from "../src/App";
 import { StatusPage } from "../src/pages/Status";
+import { FakeWebSocket, monitor } from "./fakeWebSocket";
 
 const summary = (): StatusSummary => ({
   asOf: Date.now(),
@@ -20,13 +21,15 @@ const summary = (): StatusSummary => ({
   ],
 });
 
-const kuma = (): KumaOverview => ({
+const kumaSnapshot = () => ({
+  type: "snapshot" as const,
   asOf: Date.now(),
-  counts: { up: 69, down: 1, pending: 0, maintenance: 0, unknown: 0 },
   monitors: [
-    { name: "dns9", type: "dns", target: "192.168.9.9:53", status: "down", responseTimeMs: null, certDaysRemaining: null, certValid: null },
-    { name: "Argo", type: "http", target: "https://argo.mfaherty.net", status: "up", responseTimeMs: 112, certDaysRemaining: 5, certValid: true },
+    monitor({ id: 1, name: "dns9", type: "dns", target: "192.168.9.9:53", status: "down", msg: "SERVFAIL" }),
+    monitor({ id: 2, name: "Argo", target: "https://argo.mfaherty.net", cert: { valid: true, daysRemaining: 5, validTo: null } }),
+    ...Array.from({ length: 68 }, (_, i) => monitor({ id: 10 + i, name: `m${i}` })),
   ],
+  incidents: [{ monitorId: 1, status: "down" as const, at: Date.now() - 60_000, msg: "SERVFAIL" }],
 });
 
 const renderStatus = () =>
@@ -38,7 +41,7 @@ const renderStatus = () =>
 
 beforeEach(() => {
   vi.mocked(reloadPage).mockClear();
-  vi.stubGlobal("fetch", vi.fn(async (path: string) => (path === "/api/me" ? Response.json({ email: "owner@example.com" }) : path === "/api/kuma" ? Response.json(kuma()) : Response.json(summary()))));
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => (path === "/api/me" ? Response.json({ email: "owner@example.com" }) : Response.json(summary()))));
 });
 
 async function renderApp() {
@@ -86,7 +89,7 @@ describe("Status page", () => {
     let tunnelDown = false;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (path: string) => (path === "/api/kuma" ? Response.json(kuma()) : tunnelDown ? Response.json({ error: "tunnel down" }, { status: 502 }) : Response.json(summary()))),
+      vi.fn(async () => (tunnelDown ? Response.json({ error: "tunnel down" }, { status: 502 }) : Response.json(summary()))),
     );
     renderStatus();
     await act(() => vi.advanceTimersByTimeAsync(0));
@@ -100,25 +103,35 @@ describe("Status page", () => {
     expect(screen.getByText(/^no data/)).toBeTruthy();
   });
 
-  it("leads with Uptime Kuma: counts, then what's down and which certificates expire soon", async () => {
+  it("leads with Uptime Kuma, live: counts, what's down, certificates expiring soon and today's changes", async () => {
     renderStatus();
     const kumaSection = await screen.findByRole("region", { name: "Uptime Kuma" });
-    await within(kumaSection).findByText("dns9");
+    expect(kumaSection.textContent).toContain("Connecting to Uptime Kuma");
+    expect(FakeWebSocket.latest().url).toBe(`ws://${location.host}/api/kuma/live`);
+    FakeWebSocket.latest().push(kumaSnapshot());
     expect(kumaSection.textContent).toContain("69Up");
     expect(kumaSection.textContent).toContain("1Down");
+    expect(within(kumaSection).getAllByText("SERVFAIL").length).toBeGreaterThan(0);
     expect(within(kumaSection).getByText("cert 5 days")).toBeTruthy();
+    expect(within(kumaSection).getByText("Changes in the last 24 hours")).toBeTruthy();
+    expect(within(kumaSection).getByText(/live · pushed by Uptime Kuma/)).toBeTruthy();
     expect(within(kumaSection).getByRole("link", { name: "All monitors" }).getAttribute("href")).toBe("/uptime");
     expect(await screen.findByText("Harbor")).toBeTruthy();
+
+    // dns9 recovers: pushed, not polled.
+    FakeWebSocket.latest().push({ type: "update", asOf: Date.now(), monitors: [monitor({ id: 1, name: "dns9", status: "up" })], removed: [], incidents: [] });
+    expect(kumaSection.textContent).toContain("70Up");
+    expect(kumaSection.textContent).toContain("0Down");
   });
 
-  it("keeps the endpoint board when Kuma fails, and shows Kuma's error only in its own section", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (path: string) => (path === "/api/kuma" ? Response.json({ error: "Uptime Kuma refused the API key (HTTP 401)." }, { status: 502 }) : Response.json(summary()))),
-    );
+  it("keeps the endpoint board when Kuma fails, and shows Kuma's error, with no monitors, only in its own section", async () => {
     renderStatus();
     const kumaSection = await screen.findByRole("region", { name: "Uptime Kuma" });
-    expect((await within(kumaSection).findByRole("alert")).textContent).toContain("refused the API key");
+    FakeWebSocket.latest().push(kumaSnapshot());
+    FakeWebSocket.latest().push({ type: "error", error: "Uptime Kuma closed the connection." });
+    expect(within(kumaSection).getByRole("alert").textContent).toContain("closed the connection");
+    expect(within(kumaSection).queryByText("dns9")).toBeNull();
+    expect(kumaSection.textContent).not.toContain("69Up");
     expect(await screen.findByText("Harbor")).toBeTruthy();
     expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
