@@ -9,6 +9,7 @@ import * as argo from "./integrations/argo";
 import * as pve from "./integrations/proxmox";
 import * as github from "./integrations/github";
 import * as prometheus from "./integrations/prometheus";
+import * as unifi from "./integrations/unifi";
 
 const app = new Hono<AppEnv>();
 
@@ -103,6 +104,24 @@ app.post("/api/proxmox/:host/:node/:type/:vmid/:action", async (c) => {
   const upid = await audited(c.env, who(c), `proxmox.${g.action}`, `${g.host.id}/${g.node}/${g.type}/${g.vmid}`, undefined, () => pve.guestAction(c.env, g));
   return c.json({ upid });
 });
+
+// UniFi: the UDM's own Network API, live. Actions are checked against what the UDM reports first.
+app.get("/api/unifi", async (c) => c.json(await unifi.overview(c.env)));
+app.post("/api/unifi/devices/:mac/ports/:idx/power-cycle", async (c) => {
+  const mac = unifi.parseMac(c.req.param("mac"));
+  const idx = c.req.param("idx");
+  return c.json(await audited(c.env, who(c), "unifi.power-cycle", `unifi/${mac}/port/${idx}`, undefined, () => unifi.powerCycle(c.env, mac, idx)));
+});
+app.post("/api/unifi/devices/:mac/:action", async (c) => {
+  const mac = unifi.parseMac(c.req.param("mac"));
+  const action = unifi.parseDeviceAction(c.req.param("action"));
+  return c.json(await audited(c.env, who(c), `unifi.${action}`, `unifi/${mac}`, undefined, () => unifi.deviceAction(c.env, mac, action)));
+});
+app.post("/api/unifi/clients/:mac/reconnect", async (c) => {
+  const mac = unifi.parseMac(c.req.param("mac"));
+  return c.json(await audited(c.env, who(c), "unifi.reconnect", `unifi/client/${mac}`, undefined, () => unifi.reconnectClient(c.env, mac)));
+});
+app.post("/api/unifi/speedtest", async (c) => c.json(await audited(c.env, who(c), "unifi.speedtest", "unifi/gateway", undefined, () => unifi.speedTest(c.env))));
 
 // GitHub Actions
 app.get("/api/github/runs", async (c) => c.json(await github.recentRuns(runtime(c))));

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ApiError } from "../api";
+import { ApiError, type Section } from "../api";
 
 export type Tone = "good" | "warn" | "bad" | "info" | "muted";
 
@@ -124,4 +124,43 @@ export function AsOf({ at, loading }: { at: number | null; loading?: boolean }) 
 /** Shown instead of data while nothing current is available (first load, or data aged out). */
 export function Loading({ what }: { what: string }) {
   return <div className="empty">Fetching {what} live…</div>;
+}
+
+/** One part of a page with its own source: its data, or the error that stopped it. Never both. */
+export function Block<T>({ title, section, children, actions }: { title: string; section: Section<T>; children: (data: T) => ReactNode; actions?: ReactNode }) {
+  return (
+    <section className="group">
+      <div className="group-head">
+        <h2 className="group-title">{title}</h2>
+        {actions}
+      </div>
+      {section.error !== null ? (
+        <div className="note note-error small" role="alert">
+          <strong>Unavailable</strong>
+          <span>{section.error}</span>
+        </div>
+      ) : section.data !== null ? (
+        children(section.data)
+      ) : null}
+    </section>
+  );
+}
+
+export function Ok({ children }: { children: ReactNode }) {
+  return (
+    <div className="note note-ok">
+      <span>{children}</span>
+    </div>
+  );
+}
+
+/** A single headline number. */
+export function Tile({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: Tone }) {
+  return (
+    <div className="tile">
+      <span className="tile-label">{label}</span>
+      <span className={`tile-value${tone ? ` tone-${tone}` : ""}`}>{value}</span>
+      {note && <span className={`tile-note${tone ? ` tone-${tone}` : ""}`}>{note}</span>}
+    </div>
+  );
 }

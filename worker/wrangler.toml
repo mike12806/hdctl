@@ -166,7 +166,7 @@ remote = true
 
 [[vpc_services]]
 binding = "UNIFI"
-service_id = "01a1b8ad-98d2-7812-b011-be7620a0f991"
+service_id = "01a1c0df-b3d5-7973-87ba-52bb8639e2f3"
 remote = true
 
 [[vpc_services]]

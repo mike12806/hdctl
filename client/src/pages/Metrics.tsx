@@ -1,12 +1,12 @@
-import type { ReactNode } from "react";
-import { api, type Alert, type Machine, type MetricsOverview, type Network, type PiHole, type Section, type Volumes, type Workloads } from "../api";
-import { ago, bitrate, bytes, duration, num, pct } from "../format";
+import { api, type Alert, type Machine, type MetricsOverview, type PiHole, type Volumes, type Workloads } from "../api";
+import { ago, bytes, duration, num, pct } from "../format";
 import { useNow, usePoll } from "../hooks";
-import { AsOf, Dot, ErrorNote, Loading, Meter, PageHeader, Pill, type Tone } from "../components/ui";
+import { AsOf, Block, Dot, ErrorNote, Loading, Meter, Ok, PageHeader, Pill, type Tone } from "../components/ui";
 
 /**
  * The lab as Prometheus and Alertmanager see it, asked live on every refresh.
  * Each section shows its own data or its own error, never an older answer.
+ * The network has its own page (UniFi), straight from the UDM's API.
  */
 export function MetricsPage() {
   const { data, fetchedAt, error, loading, reload } = usePoll(() => api<MetricsOverview>("/api/metrics"), 30_000);
@@ -44,9 +44,6 @@ export function MetricsPage() {
           <Block title="Storage" section={data.volumes}>
             {(v) => <VolumesView v={v} />}
           </Block>
-          <Block title="Network" section={data.network}>
-            {(n) => <NetworkView n={n} />}
-          </Block>
           <Block title="DNS" section={data.dns}>
             {(d) => <Dns hosts={d} />}
           </Block>
@@ -71,30 +68,6 @@ export function MetricsPage() {
         </>
       )}
     </>
-  );
-}
-
-function Block<T>({ title, section, children }: { title: string; section: Section<T>; children: (data: T) => ReactNode }) {
-  return (
-    <section className="group">
-      <h2 className="group-title">{title}</h2>
-      {section.error !== null ? (
-        <div className="note note-error small" role="alert">
-          <strong>Unavailable</strong>
-          <span>{section.error}</span>
-        </div>
-      ) : section.data !== null ? (
-        children(section.data)
-      ) : null}
-    </section>
-  );
-}
-
-function Ok({ children }: { children: ReactNode }) {
-  return (
-    <div className="note note-ok">
-      <span>{children}</span>
-    </div>
   );
 }
 
@@ -238,43 +211,6 @@ function VolumesView({ v }: { v: Volumes }) {
         ))}
       </ul>
     </>
-  );
-}
-
-function NetworkView({ n }: { n: Network }) {
-  const sum = (k: "downloadBps" | "uploadBps") => (n.wans.length ? n.wans.reduce((s, w) => s + (w[k] ?? 0), 0) : null);
-  const availability = n.wans.find((w) => w.availability !== null)?.availability ?? null;
-  const st = n.speedtest;
-  return (
-    <div className="tiles">
-      <Tile label="Download now" value={bitrate(sum("downloadBps"))} />
-      <Tile label="Upload now" value={bitrate(sum("uploadBps"))} />
-      <Tile label="Internet latency" value={n.internetLatencyMs !== null ? `${n.internetLatencyMs} ms` : "–"} />
-      <Tile label="Wi-Fi clients" value={num(n.wifiClients)} />
-      <Tile label="Wired clients" value={num(n.wiredClients)} />
-      <Tile
-        label="Access points"
-        value={num(n.accessPoints)}
-        note={n.disconnectedDevices ? `${n.disconnectedDevices} device${n.disconnectedDevices === 1 ? "" : "s"} offline` : undefined}
-        tone={n.disconnectedDevices ? "bad" : undefined}
-      />
-      <Tile
-        label="Last speed test"
-        value={st.downMbps !== null ? `${num(st.downMbps)}/${num(st.upMbps)}` : "–"}
-        note={`Mbps down/up${st.pingMs !== null ? ` · ${st.pingMs} ms ping` : ""}`}
-      />
-      <Tile label="WAN availability" value={availability !== null ? `${availability.toFixed(availability >= 99.95 ? 0 : 2)}%` : "–"} />
-    </div>
-  );
-}
-
-function Tile({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: Tone }) {
-  return (
-    <div className="tile">
-      <span className="tile-label">{label}</span>
-      <span className={`tile-value${tone ? ` tone-${tone}` : ""}`}>{value}</span>
-      {note && <span className={`tile-note${tone ? ` tone-${tone}` : ""}`}>{note}</span>}
-    </div>
   );
 }
 
