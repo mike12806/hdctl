@@ -8,7 +8,8 @@ export interface Env {
   CF_ACCESS_TEAM_DOMAIN: string;
   CF_ACCESS_AUD: string;
   ALLOWED_EMAILS: string;
-  GITHUB_REPOS: string;
+  /** The GitHub account whose repositories the Actions page shows (all of them). */
+  GITHUB_OWNER: string;
 
   // Secrets. Each integration answers 503 with a setup hint while its one is missing.
   ARGOCD_TOKEN?: string;

@@ -1,11 +1,13 @@
 import { parse as parseYaml } from "yaml";
-import type { Env, Runtime } from "../env";
+import type { Runtime } from "../env";
 import { BadRequest, NotConfigured, UpstreamError } from "../errors";
 import { revalidatingFetch } from "../cache";
 
 /**
- * GitHub Actions for the repositories in GITHUB_REPOS: recent runs, the
- * workflow list, and workflow_dispatch with the workflow's own inputs. This is
+ * GitHub Actions for every repository GITHUB_OWNER owns: recent runs, the
+ * workflow list, and workflow_dispatch with the workflow's own inputs. The
+ * repository list itself comes from GitHub on every request, so a new repo
+ * shows up without a deploy and an archived one drops off. This is
  * the one integration that goes over the public internet (api.github.com),
  * not through the tunnel.
  *
@@ -14,13 +16,41 @@ import { revalidatingFetch } from "../cache";
  * 304 (see cache.ts), which GitHub also doesn't count against the rate limit.
  */
 
-export function repos(env: Env): string[] {
-  return env.GITHUB_REPOS.split(",").map((r) => r.trim()).filter(Boolean);
+interface Repo {
+  full_name: string;
+  owner: { login: string };
+  archived: boolean;
 }
 
-export function assertRepo(env: Env, repo: string): string {
-  if (!repos(env).includes(repo)) throw new BadRequest(`repository ${repo} is not in GITHUB_REPOS`);
+/**
+ * Every repository GITHUB_OWNER owns that the token can see, archived ones
+ * left out (their workflows can't run). Sorted by name.
+ */
+export async function repos(rt: Runtime): Promise<string[]> {
+  const owner = rt.env.GITHUB_OWNER.toLowerCase();
+  const found: string[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const batch = await gh<Repo[]>(rt, `/user/repos?affiliation=owner,collaborator&sort=full_name&per_page=100&page=${page}`);
+    for (const r of batch) if (r.owner.login.toLowerCase() === owner && !r.archived) found.push(r.full_name);
+    if (batch.length < 100) break;
+  }
+  return found.sort((a, b) => a.localeCompare(b));
+}
+
+/** Only GITHUB_OWNER's own, unarchived repositories, as GitHub lists them right now. */
+export async function assertRepo(rt: Runtime, repo: string): Promise<string> {
+  if (!(await repos(rt)).includes(repo)) throw new BadRequest(`repository ${repo} isn't one of ${rt.env.GITHUB_OWNER}'s active repositories`);
   return repo;
+}
+
+/** A repository with Actions turned off answers 404: it has no runs or workflows to show. */
+async function orNone<T>(p: Promise<T>, none: T): Promise<T> {
+  try {
+    return await p;
+  } catch (e) {
+    if (e instanceof UpstreamError && / -> HTTP 404 /.test(e.message)) return none;
+    throw e;
+  }
 }
 
 const JSON_ACCEPT = "application/vnd.github+json";
@@ -83,8 +113,8 @@ interface Run {
 
 export async function recentRuns(rt: Runtime, perRepo = 15) {
   const lists = await Promise.all(
-    repos(rt.env).map(async (repo) => {
-      const body = await gh<{ workflow_runs: Run[] }>(rt, `/repos/${repo}/actions/runs?per_page=${perRepo}`);
+    (await repos(rt)).map(async (repo) => {
+      const body = await orNone(gh<{ workflow_runs: Run[] }>(rt, `/repos/${repo}/actions/runs?per_page=${perRepo}`), { workflow_runs: [] });
       return body.workflow_runs.map((r) => ({
         id: r.id,
         repo,
@@ -111,8 +141,8 @@ interface Workflow { id: number; name: string; path: string; state: string; html
 
 export async function listWorkflows(rt: Runtime) {
   const lists = await Promise.all(
-    repos(rt.env).map(async (repo) => {
-      const body = await gh<{ workflows: Workflow[] }>(rt, `/repos/${repo}/actions/workflows?per_page=100`);
+    (await repos(rt)).map(async (repo) => {
+      const body = await orNone(gh<{ workflows: Workflow[] }>(rt, `/repos/${repo}/actions/workflows?per_page=100`), { workflows: [] });
       return body.workflows
         .filter((w) => w.state === "active" && w.path.startsWith(".github/workflows/"))
         .map((w) => ({ repo, id: w.id, name: w.name, file: w.path.replace(".github/workflows/", ""), url: w.html_url }));
@@ -171,8 +201,8 @@ async function defaultBranch(rt: Runtime, repo: string): Promise<string> {
 
 /** The workflow's dispatch inputs as defined on the default branch, which is what a dispatch runs. */
 export async function workflowInputs(rt: Runtime, repo: string, file: string) {
-  assertRepo(rt.env, repo);
   assertWorkflowFile(file);
+  await assertRepo(rt, repo);
   const ref = await defaultBranch(rt, repo);
   const source = await gh<string>(
     rt,
