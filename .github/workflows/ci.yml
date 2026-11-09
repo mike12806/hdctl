@@ -1,8 +1,13 @@
 name: CI
 
-# Pull requests: type-check, unit tests, client build, the VPC catalog check,
-# and a wrangler dry run (bundles the Worker and validates every binding in
-# wrangler.toml without uploading). No credentials.
+# Pull requests: the three checks the `main` ruleset requires, by name.
+#   Server Tests  the Worker: type check and unit tests
+#   Client Tests  the React app: type check and unit tests
+#   Build         the VPC catalog check, the client build, and a wrangler dry
+#                 run (bundles the Worker and validates every binding in
+#                 wrangler.toml without uploading)
+# No credentials. Renaming a job's `name:` breaks the ruleset's match, so
+# change both together. Code scanning is codeql.yml.
 
 on:
   pull_request:
@@ -16,29 +21,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  server:
+    name: Server Tests
     # GitHub-hosted like TaskTracker's: there's no ARC runner scale set for
     # this repo yet (they're per repo, in hdc kubernetes/github-arc-scale-sets/).
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 26
           cache: npm
+      - run: npm ci --no-audit --no-fund
 
+      - name: Type check
+        run: npm run typecheck -w worker
+
+      - name: Unit tests
+        run: npm test -w worker
+
+  client:
+    name: Client Tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+
+      - name: Type check
+        run: npm run typecheck -w client
+
+      - name: Unit tests
+        run: npm test -w client
+
+  build:
+    name: Build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 26
+          cache: npm
       - run: npm ci --no-audit --no-fund
 
       - name: VPC catalog matches wrangler.toml
         run: npm run vpc:check
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Unit tests
-        run: npm test
 
       - name: Build client
         run: npm run build
