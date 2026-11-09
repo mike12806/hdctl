@@ -210,18 +210,6 @@ export interface Volumes {
   fullest: { namespace: string; claim: string; used: number; capacity: number | null }[];
 }
 
-export interface Network {
-  wans: { device: string; port: string; downloadBps: number | null; uploadBps: number | null; latencyMs: number | null; availability: number | null }[];
-  wifiClients: number | null;
-  wiredClients: number | null;
-  vpnClients: number | null;
-  guests: number | null;
-  accessPoints: number | null;
-  disconnectedDevices: number | null;
-  internetLatencyMs: number | null;
-  speedtest: { downMbps: number | null; upMbps: number | null; pingMs: number | null };
-}
-
 export interface PiHole {
   host: string;
   enabled: boolean | null;
@@ -237,7 +225,67 @@ export interface MetricsOverview {
   machines: Section<Machine[]>;
   workloads: Section<Workloads>;
   volumes: Section<Volumes>;
-  network: Section<Network>;
   dns: Section<PiHole[]>;
   scrape: Section<{ total: number | null; down: { job: string; instance: string }[] }>;
+}
+
+// --- /api/unifi: the UDM's own Network API --------------------------------------
+
+export interface UnifiHealth {
+  subsystems: { name: string; status: string }[];
+  wan: { ip: string | null; isp: string | null; downloadBps: number | null; uploadBps: number | null; availability: number | null };
+  gateway: { name: string | null; version: string | null; cpu: number | null; mem: number | null; uptime: number | null };
+  internet: { latencyMs: number | null; drops: number | null };
+  speedtest: { downMbps: number | null; upMbps: number | null; pingMs: number | null; lastRunAt: number | null; running: boolean };
+  clients: { wifi: number | null; wired: number | null; guests: number | null; vpn: number | null };
+  devices: { accessPoints: number | null; switches: number | null; disconnected: number | null; pending: number | null };
+}
+
+export interface UnifiPort {
+  idx: number;
+  name: string;
+  up: boolean;
+  speedMbps: number | null;
+  poe: boolean;
+  poeWatts: number | null;
+}
+
+export interface UnifiDevice {
+  mac: string;
+  name: string;
+  model: string;
+  kind: "gateway" | "switch" | "ap" | "other";
+  ip: string | null;
+  state: string;
+  online: boolean;
+  version: string | null;
+  upgradeTo: string | null;
+  uptime: number | null;
+  cpu: number | null;
+  mem: number | null;
+  clients: number | null;
+  locating: boolean;
+  ports: UnifiPort[];
+}
+
+export interface UnifiClient {
+  mac: string;
+  name: string;
+  ip: string | null;
+  wired: boolean;
+  guest: boolean;
+  network: string | null;
+  via: string | null;
+  ssid: string | null;
+  signal: number | null;
+  satisfaction: number | null;
+  uptime: number | null;
+  rateBps: number | null;
+}
+
+export interface UnifiOverview {
+  asOf: number;
+  health: Section<UnifiHealth>;
+  devices: Section<UnifiDevice[]>;
+  clients: Section<UnifiClient[]>;
 }
