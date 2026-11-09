@@ -16,8 +16,10 @@ export interface Env {
   GITHUB_TOKEN?: string;
   /** A UniFi OS API key (X-API-KEY) for the UDM's Network application. */
   UNIFI_API_KEY?: string;
-  /** An Uptime Kuma API key, for its /metrics endpoint. */
-  KUMA_API_KEY?: string;
+  /** An Uptime Kuma login token (the JWT its web UI keeps), for Kuma's Socket.IO API. */
+  KUMA_TOKEN?: string;
+  /** The Durable Object that holds the one live connection to Uptime Kuma. */
+  KUMA_LIVE: DurableObjectNamespace;
 
   /** Identifies the deployed build (the git SHA); the client reloads when it changes. */
   BUILD_ID?: string;

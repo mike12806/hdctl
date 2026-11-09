@@ -39,7 +39,7 @@ export function ProxmoxPage() {
         title="Proxmox"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} />
+            <AsOf at={fetchedAt} loading={loading} every={30_000} />
             {data ? ` · ${totals.hostsUp}/${hosts.length} hosts answering · ${totals.running}/${totals.guests} guests running` : ""}
           </>
         }
