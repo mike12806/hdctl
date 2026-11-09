@@ -170,7 +170,7 @@ jobs: {}
     });
     const res = await call(t.env, "/api/github/workflows");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([{ repo: "mike12806/gh_hdc", id: 1, name: "Terraform", file: "terraform.yml", url: "https://github.com/x" }]);
+    expect(await res.json()).toEqual([{ forge: "github", repo: "mike12806/gh_hdc", id: 1, name: "Terraform", file: "terraform.yml", path: ".github/workflows/terraform.yml", url: "https://github.com/x" }]);
     expect(runsOf.sort()).toEqual(["mike12806/gh_hdc", "mike12806/public-jobs"]);
   });
 
