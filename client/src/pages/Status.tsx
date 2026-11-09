@@ -2,6 +2,7 @@ import { api, type State, type StatusSummary, type StatusTarget } from "../api";
 import { ago, pct } from "../format";
 import { useNow, usePoll } from "../hooks";
 import { AsOf, Dot, ErrorNote, Loading, PageHeader, type Tone } from "../components/ui";
+import { UptimeSummary } from "../components/UptimeSummary";
 
 const TONE: Record<State, Tone> = { up: "good", degraded: "warn", down: "bad" };
 const ORDER = ["proxmox", "vault", "backup", "storage", "network", "apps", "cluster"];
@@ -21,7 +22,7 @@ export function StatusPage() {
         title="Status"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} /> · every endpoint probed through the tunnel on each refresh
+            <AsOf at={fetchedAt} loading={loading} every={30_000} /> · every endpoint probed through the tunnel on each refresh
           </>
         }
       >
@@ -30,6 +31,9 @@ export function StatusPage() {
         </button>
       </PageHeader>
 
+      <UptimeSummary />
+
+      <h2 className="group-title">Endpoints, probed by hdctl</h2>
       <ErrorNote error={error} />
       {!data && !error && <Loading what="endpoint status" />}
 

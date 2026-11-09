@@ -18,7 +18,7 @@ export function MetricsPage() {
         title="Metrics"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} /> · Prometheus and Alertmanager, asked on each refresh
+            <AsOf at={fetchedAt} loading={loading} every={30_000} /> · Prometheus and Alertmanager, asked on each refresh
           </>
         }
       >
