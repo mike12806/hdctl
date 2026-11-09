@@ -23,7 +23,7 @@ lab.
 | **Proxmox** | Each host's CPU/RAM/uptime and every VM and container | Start, shut down, reboot |
 | **UniFi** | From the UniFi gateway's own Network API: WAN health, latency and speed test; every gateway, switch and access point with firmware, clients and PoE ports; every connected client | Restart a device, flash its LED, power-cycle a PoE port, reconnect a Wi-Fi client, run a speed test |
 | **Uptime** | Pushed live from Uptime Kuma's own API as Kuma checks: every monitor's status, last 60 checks, response time, 24 h and 30 d uptime, certificate expiry, and recent status changes, problems first. The Status page opens with a summary | Read only |
-| **Actions** | Recent GitHub Actions runs and every active workflow | Run any `workflow_dispatch` workflow, with a form built from its inputs |
+| **Actions** | Recent GitHub Actions runs and every active workflow, across every repository the GitHub account owns | Run any `workflow_dispatch` workflow, with a form built from its inputs |
 | **Audit** | Every action above: who, what, when, outcome | Read only |
 
 > hdctl is built for one specific home lab, and its config (hostnames, IPs,
@@ -153,7 +153,7 @@ To adapt hdctl to another lab:
    (run in CI) fails if the two disagree.
 2. **Worker config.** In `worker/wrangler.toml`, set your domain, your Access
    application's AUD (`CF_ACCESS_AUD`), team domain (`CF_ACCESS_TEAM_DOMAIN`) and `ALLOWED_EMAILS`, and
-   the repositories in `GITHUB_REPOS`.
+   the GitHub account in `GITHUB_OWNER` (the Actions page shows all of its repositories).
 3. **Secrets.** Each integration reads its own credential:
    `ARGOCD_TOKEN`, `PVE_TOKENS` (JSON map of host to Proxmox API token),
    `GITHUB_TOKEN`, `UNIFI_API_KEY`, `KUMA_TOKEN` (an Uptime Kuma login token). A page whose secret is missing says

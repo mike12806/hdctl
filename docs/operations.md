@@ -180,8 +180,8 @@ Both work today, but grant more than hdctl needs:
   `PVEAuditor` + `VM.PowerMgmt` only, store them at `kv/github/hdctl/proxmox`,
   and point the deploy workflow there.
 - **The GitHub token is the classic `repo`-scoped `GH_HDC_PAT`.** A
-  fine-grained token limited to `gh_hdc` + `public-jobs` with *Actions: read
-  and write* and *Contents: read* is all hdctl uses.
+  fine-grained token for all of `mike12806`'s repositories with *Actions: read
+  and write*, *Contents: read* and *Metadata: read* (to list them) is all hdctl uses.
 
 ---
 
