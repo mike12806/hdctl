@@ -29,7 +29,7 @@ export function ActionsPage() {
         title="GitHub Actions"
         subtitle={
           <>
-            <AsOf at={runs.fetchedAt} loading={runs.loading} /> · recent runs and workflow dispatch for the homelab repositories
+            <AsOf at={runs.fetchedAt} loading={runs.loading} every={20_000} /> · recent runs and workflow dispatch for the homelab repositories
           </>
         }
       >

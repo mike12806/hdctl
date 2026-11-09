@@ -66,7 +66,7 @@ export function UnifiPage() {
         title="UniFi"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} /> · the UDM's own API, asked on each refresh
+            <AsOf at={fetchedAt} loading={loading} every={30_000} /> · the UDM's own API, asked on each refresh
             {data?.devices.data ? ` · ${devices.filter((d) => d.online).length}/${devices.length} devices online` : ""}
             {clients ? ` · ${clients.length} clients` : ""}
           </>
