@@ -290,22 +290,42 @@ export interface UnifiOverview {
   clients: Section<UnifiClient[]>;
 }
 
-// --- /api/kuma: Uptime Kuma's own /metrics ----------------------------------------
+// --- /api/kuma/live: Uptime Kuma, pushed over a WebSocket ------------------------
 
-export type MonitorStatus = "up" | "down" | "pending" | "maintenance" | "unknown";
+export type MonitorStatus = "up" | "down" | "pending" | "maintenance" | "paused" | "unknown";
 
-export interface KumaMonitor {
+export interface Beat {
+  at: number;
+  status: MonitorStatus;
+  pingMs: number | null;
+}
+
+export interface LiveMonitor {
+  id: number;
   name: string;
   type: string | null;
   target: string | null;
   status: MonitorStatus;
-  responseTimeMs: number | null;
-  certDaysRemaining: number | null;
-  certValid: boolean | null;
+  msg: string | null;
+  lastBeatAt: number | null;
+  pingMs: number | null;
+  avgPing24hMs: number | null;
+  uptime24h: number | null;
+  uptime30d: number | null;
+  cert: { valid: boolean; daysRemaining: number | null; validTo: string | null } | null;
+  beats: Beat[];
 }
 
-export interface KumaOverview {
-  asOf: number;
-  counts: Record<MonitorStatus, number>;
-  monitors: KumaMonitor[];
+export interface Incident {
+  monitorId: number;
+  status: MonitorStatus;
+  at: number;
+  msg: string;
 }
+
+export type LiveMessage =
+  | { type: "connecting" }
+  | { type: "snapshot"; asOf: number; monitors: LiveMonitor[]; incidents: Incident[] }
+  | { type: "update"; asOf: number; monitors: LiveMonitor[]; removed: number[]; incidents: Incident[] }
+  | { type: "alive"; asOf: number }
+  | { type: "error"; error: string; setup?: boolean };
