@@ -22,6 +22,7 @@ lab.
 | **Argo CD** | Every Application's health, sync state and last operation | Refresh, sync (never prunes) |
 | **Proxmox** | Each host's CPU/RAM/uptime and every VM and container | Start, shut down, reboot |
 | **UniFi** | From the UniFi gateway's own Network API: WAN health, latency and speed test; every gateway, switch and access point with firmware, clients and PoE ports; every connected client | Restart a device, flash its LED, power-cycle a PoE port, reconnect a Wi-Fi client, run a speed test |
+| **Uptime** | Pushed live from Uptime Kuma's own API as Kuma checks: every monitor's status, last 60 checks, response time, 24 h and 30 d uptime, certificate expiry, and recent status changes, problems first. The Status page opens with a summary | Read only |
 | **Actions** | Recent GitHub Actions runs and every active workflow | Run any `workflow_dispatch` workflow, with a form built from its inputs |
 | **Audit** | Every action above: who, what, when, outcome | Read only |
 
@@ -133,10 +134,10 @@ worker/
     health.ts         live probes, classification, recorded history
     cache.ts          KV cache that only serves origin-confirmed (304) copies
     audit.ts          audited() wrapper + audit log reads
-    integrations/     argo · proxmox · unifi · github · prometheus
+    integrations/     argo · proxmox · unifi · kuma · github · prometheus
   test/               vitest against fake upstreams
 client/
-  src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Actions · Audit
+  src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Uptime · Actions · Audit
   test/               vitest + jsdom
 docs/                 internals.md · operations.md
 ```
@@ -155,7 +156,7 @@ To adapt hdctl to another lab:
    the repositories in `GITHUB_REPOS`.
 3. **Secrets.** Each integration reads its own credential:
    `ARGOCD_TOKEN`, `PVE_TOKENS` (JSON map of host to Proxmox API token),
-   `GITHUB_TOKEN`, `UNIFI_API_KEY`. A page whose secret is missing says
+   `GITHUB_TOKEN`, `UNIFI_API_KEY`, `KUMA_TOKEN` (an Uptime Kuma login token). A page whose secret is missing says
    "Not set up yet" rather than failing.
 4. **Deploy** with `wrangler deploy`, after creating the D1 database and KV
    namespace and applying migrations. `.github/workflows/deploy.yml` shows how
@@ -180,6 +181,7 @@ PVE_TOKENS='{"pve":"USER@REALM!TOKENID=SECRET"}'
 GITHUB_TOKEN=…
 ARGOCD_TOKEN=…
 UNIFI_API_KEY=…
+KUMA_TOKEN=…
 ```
 
 Then run with a Cloudflare token that can bind VPC Services (the bindings are

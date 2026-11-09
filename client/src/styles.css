@@ -166,6 +166,7 @@ p { margin: 0 0 0.75rem; }
 .tick-warn { background: var(--warn); }
 .tick-bad { background: var(--bad); }
 .tick-empty { background: var(--panel-2); }
+.tick-info { background: var(--info); }
 .card-foot { display: flex; justify-content: space-between; font-size: 11px; }
 
 /* --- Tables ---------------------------------------------------------------- */
@@ -228,6 +229,9 @@ p { margin: 0 0 0.75rem; }
 .tile-value { font-family: var(--mono); font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-note { font-size: 11px; color: var(--muted); }
 .group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.group-head-main { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
+.subtle-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 14px 0 6px; }
+.cell-history { min-width: 180px; }
 .group-head .group-title { margin-bottom: 0; }
 
 /* --- UniFi -------------------------------------------------------------------- */
