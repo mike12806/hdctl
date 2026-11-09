@@ -24,6 +24,7 @@ lab.
 | **UniFi** | From the UniFi gateway's own Network API: WAN health, latency and speed test; every gateway, switch and access point with firmware, clients and PoE ports; every connected client | Restart a device, flash its LED, power-cycle a PoE port, reconnect a Wi-Fi client, run a speed test |
 | **Uptime** | Pushed live from Uptime Kuma's own API as Kuma checks: every monitor's status, last 60 checks, response time, 24 h and 30 d uptime, certificate expiry, and recent status changes, problems first. The Status page opens with a summary | Read only |
 | **Actions** | Recent runs and every active workflow, from GitHub Actions (every repository the GitHub account owns) and Gitea Actions (every repository on the Gitea instance), side by side | Run any `workflow_dispatch` workflow, with a form built from its inputs |
+| **Pull requests** | Every open pull request on GitHub (the account's repositories) and Gitea, with checks, conflicts, drafts and reviews | Merge (the repository's own method, pinned to the head commit shown), close |
 | **Audit** | Every action above: who, what, when, outcome | Read only |
 
 > hdctl is built for one specific home lab, and its config (hostnames, IPs,
@@ -134,10 +135,10 @@ worker/
     health.ts         live probes, classification, recorded history
     cache.ts          KV cache that only serves origin-confirmed (304) copies
     audit.ts          audited() wrapper + audit log reads
-    integrations/     argo · proxmox · unifi · kuma · github · prometheus
+    integrations/     argo · proxmox · unifi · kuma · github · gitea · prometheus
   test/               vitest against fake upstreams
 client/
-  src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Uptime · Actions · Audit
+  src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Uptime · Actions · Pull requests · Audit
   test/               vitest + jsdom
 docs/                 internals.md · operations.md
 ```

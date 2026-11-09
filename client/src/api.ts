@@ -141,6 +141,26 @@ export interface Workflow {
   url: string;
 }
 
+/** An open pull request on GitHub or Gitea, in one shape. */
+export interface PullRequest {
+  forge: Forge;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string | null;
+  draft: boolean;
+  createdAt: string;
+  updatedAt: string;
+  head: string;
+  headSha: string;
+  base: string;
+  labels: string[];
+  checks: "success" | "failure" | "pending" | "none";
+  mergeable: "yes" | "conflict" | "unknown";
+  review: "approved" | "changes_requested" | "review_required" | null;
+}
+
 export interface DispatchInput {
   name: string;
   description: string | null;

@@ -164,6 +164,25 @@ app.post("/api/gitea/workflows/:owner/:repo/:file/dispatch", async (c) => {
   return c.json(await audited(c.env, who(c), "gitea.dispatch", `gitea/${full}/${file}`, body.inputs ?? {}, () => gitea.dispatch(c.env, full, file, body.inputs ?? {})));
 });
 
+// Pull requests: open ones on GitHub (GITHUB_OWNER's repositories) and Gitea, each forge on its own.
+// Merge and close are audited; a merge is pinned to the head commit the page showed.
+app.get("/api/pulls/github", async (c) => c.json(await github.openPulls(runtime(c))));
+app.get("/api/pulls/gitea", async (c) => c.json(await gitea.openPulls(c.env)));
+app.post("/api/pulls/:forge/:owner/:repo/:number/:action", async (c) => {
+  const { forge, owner, repo, action } = c.req.param();
+  if (forge !== "github" && forge !== "gitea") throw new BadRequest("unknown forge");
+  if (action !== "merge" && action !== "close") throw new BadRequest("unknown action");
+  const number = github.parsePullNumber(c.req.param("number"));
+  const full = `${owner}/${repo}`;
+  const target = `${forge}/${full}#${number}`;
+  if (action === "close") {
+    return c.json(await audited(c.env, who(c), `${forge}.pr.close`, target, undefined, () => (forge === "github" ? github.closePull(runtime(c), full, number) : gitea.closePull(c.env, full, number))));
+  }
+  const body = (await c.req.json().catch(() => ({}))) as { sha?: unknown };
+  const sha = github.parseSha(body.sha);
+  return c.json(await audited(c.env, who(c), `${forge}.pr.merge`, target, { sha }, () => (forge === "github" ? github.mergePull(runtime(c), full, number, sha) : gitea.mergePull(c.env, full, number, sha))));
+});
+
 // Audit log
 app.get("/api/audit", async (c) => c.json(await recentAudit(c.env)));
 
