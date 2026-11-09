@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, type Section } from "../api";
+import { useIdle } from "../idle";
 
 export type Tone = "good" | "warn" | "bad" | "info" | "muted";
 
@@ -111,19 +112,49 @@ export function PageHeader({ title, subtitle, children }: { title: string; subti
   );
 }
 
-/** "live · as of 20:14:03": when the data on screen was fetched from its source. */
-export function AsOf({ at, loading }: { at: number | null; loading?: boolean }) {
-  if (at === null) return <span className="asof muted">{loading ? "fetching live data…" : "no data"}</span>;
+/** 30_000 -> "30 s", 300_000 -> "5 min". */
+export function every(ms: number): string {
+  return ms % 60_000 === 0 ? `${ms / 60_000} min` : `${Math.round(ms / 1000)} s`;
+}
+
+/**
+ * "live · as of 20:14:03 · auto-refresh 30 s": when the data on screen was
+ * fetched from its source, and how it stays current. Says so when refreshing
+ * is paused because nobody is using the tab.
+ */
+export function AsOf({ at, loading, every: everyMs }: { at: number | null; loading?: boolean; every?: number }) {
+  const idle = useIdle();
+  const refresh = idle ? (
+    <span className="asof-paused" title="No input for 15 minutes, so nothing is being fetched. Move the mouse or press a key to resume.">
+      {" "}
+      · auto-refresh paused while idle
+    </span>
+  ) : everyMs ? (
+    <span className="muted"> · auto-refresh {every(everyMs)}</span>
+  ) : null;
+  if (at === null)
+    return (
+      <span className="asof muted">
+        {idle ? "no current data" : loading ? "fetching live data…" : "no data"}
+        {refresh}
+      </span>
+    );
   return (
     <span className="asof" title={new Date(at).toString()}>
-      <span className={`dot dot-good${loading ? " dot-pulse-soft" : ""}`} aria-hidden /> live · as of {new Date(at).toLocaleTimeString()}
+      <span className={`dot ${idle ? "dot-muted" : "dot-good"}${loading ? " dot-pulse-soft" : ""}`} aria-hidden /> live · as of {new Date(at).toLocaleTimeString()}
+      {refresh}
     </span>
   );
 }
 
 /** Shown instead of data while nothing current is available (first load, or data aged out). */
 export function Loading({ what }: { what: string }) {
-  return <div className="empty">Fetching {what} live…</div>;
+  const idle = useIdle();
+  return idle ? (
+    <div className="empty">Paused while idle. Move the mouse or press a key to fetch {what} live.</div>
+  ) : (
+    <div className="empty">Fetching {what} live…</div>
+  );
 }
 
 /** One part of a page with its own source: its data, or the error that stopped it. Never both. */

@@ -120,7 +120,7 @@ stays a small fraction of what that plan includes:
 
 | Meter | hdctl's use | Included per month |
 |---|---|---|
-| Worker requests | cron 21,600 a month; a tab polling every 30 s adds 2,880 a day | 10 million |
+| Worker requests | cron 21,600 a month; a tab in use adds 2,880 a day (every 30 s), and nothing while hidden or after 15 minutes without input | 10 million |
 | CPU time | a few ms a request (JWT check, JSON) | 30 million ms |
 | D1 rows written | about 200 a cron run (insert + its two indexes, upsert, prune): ~4.3 million a month | 50 million |
 | D1 rows read | about 21,000 a Status refresh (24 h of checks for uptime, 2 h for history): ~1.8 billion a month with a Status tab open around the clock | 25 billion |
@@ -194,7 +194,8 @@ units.
 | `/assets/*` (JS, CSS) | Content-hashed names, `immutable` for a year: changed content gets a new name, so an old file can't be served for a new one |
 | An open tab after a deploy | Every response carries `X-Hdctl-Build` (the git SHA). A tab running an older bundle reloads itself, or asks first if a confirmation dialog is open |
 | Back/forward navigation | A page restored from the browser's back/forward cache reloads instead of showing what it showed back then |
-| Data on screen | A failed refresh clears the panel and shows the error; data older than two poll intervals (sleeping laptop, hidden tab) is withheld until a fresh answer arrives. Every panel shows **live · as of** the time its data was fetched |
+| Data on screen | Every page refreshes itself (every 30 s; Actions runs every 20 s) and says so: **live · as of** the time its data was fetched **· auto-refresh 30 s**. A failed refresh clears the panel and shows the error; data older than two poll intervals (sleeping laptop, hidden tab) is withheld until a fresh answer arrives |
+| A page left open | Polling stops while the tab is hidden, and after 15 minutes without input (the header says **auto-refresh paused while idle**), so a forgotten tab sends nothing to the Worker or the systems behind it. The next key press, click or scroll, or coming back to the tab, loads fresh data at once |
 | Service worker | None, so there's no offline cache
 
 ---
