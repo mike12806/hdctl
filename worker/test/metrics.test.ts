@@ -2,14 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   DNS_QUERY,
   MACHINES_QUERY,
-  NETWORK_QUERY,
   SCRAPE_QUERY,
   VOLUMES_QUERY,
   WORKLOADS_QUERY,
   parseAlerts,
   parseDns,
   parseMachines,
-  parseNetwork,
   parseVolumes,
   parseWorkloads,
   type Sample,
@@ -91,28 +89,6 @@ describe("parseVolumes", () => {
   });
 });
 
-describe("parseNetwork", () => {
-  it("reads WAN rates, latency and client counts from unpoller", () => {
-    const wan = { name: "udm", port: "eth8" };
-    const n = parseNetwork([
-      s({ __name__: "unpoller_device_wan_receive_rate_bytes", ...wan }, 1_250_000),
-      s({ __name__: "unpoller_device_wan_transmit_rate_bytes", ...wan }, 250_000),
-      s({ __name__: "unpoller_device_wan_latency_seconds", ...wan }, 0.011),
-      s({ __name__: "unpoller_device_wan_availability_percent", ...wan }, 100),
-      s({ __name__: "unpoller_site_users", subsystem: "wlan" }, 43),
-      s({ __name__: "unpoller_site_users", subsystem: "lan" }, 50),
-      s({ __name__: "unpoller_site_aps", subsystem: "wlan" }, 5),
-      s({ __name__: "unpoller_site_disconnected", subsystem: "lan" }, 0),
-      s({ __name__: "unpoller_site_disconnected", subsystem: "wlan" }, 1),
-      s({ __name__: "unpoller_site_latency_seconds", subsystem: "www" }, 0.017),
-      s({ __name__: "unpoller_site_xput_down_rate", subsystem: "www" }, 926),
-    ]);
-    expect(n.wans).toEqual([{ device: "udm", port: "eth8", downloadBps: 1_250_000, uploadBps: 250_000, latencyMs: 11, availability: 100 }]);
-    expect(n).toMatchObject({ wifiClients: 43, wiredClients: 50, accessPoints: 5, disconnectedDevices: 1, internetLatencyMs: 17, guests: null });
-    expect(n.speedtest).toEqual({ downMbps: 926, upMbps: null, pingMs: null });
-  });
-});
-
 describe("parseDns", () => {
   it("groups the exporter's series by Pi-hole", () => {
     expect(
@@ -172,7 +148,6 @@ describe("GET /api/metrics", () => {
       if (q === MACHINES_QUERY) return vector([{ metric: { m: "up", job: "node-exporter", instance: "n1:9796" }, value: [0, "1"] }]);
       if (q === WORKLOADS_QUERY) return vector([{ metric: { m: "running" }, value: [0, "306"] }]);
       if (q === VOLUMES_QUERY) return vector([]);
-      if (q === NETWORK_QUERY) return vector([{ metric: { __name__: "unpoller_site_users", subsystem: "wlan" }, value: [0, "43"] }]);
       if (q === DNS_QUERY) return vector([{ metric: { __name__: "pihole_status", hostname: "dns9" }, value: [0, "1"] }]);
       if (q === SCRAPE_QUERY) return vector([{ metric: { m: "total" }, value: [0, "113"] }]);
       return Response.json({ status: "error", error: "unknown query" }, { status: 400 });
@@ -186,14 +161,14 @@ describe("GET /api/metrics", () => {
     expect(body.alerts).toMatchObject({ error: null, data: [{ name: "KubeJobFailed", where: "ns/j" }] });
     expect(body.machines).toMatchObject({ error: null, data: [{ instance: "n1:9796", up: true }] });
     expect(body.workloads).toMatchObject({ error: null, data: { podsRunning: 306 } });
-    expect(body.network).toMatchObject({ error: null, data: { wifiClients: 43 } });
+    expect(body.network).toBeUndefined(); // the UDM's own API serves that now (/api/unifi)
     expect(body.dns).toMatchObject({ error: null, data: [{ host: "dns9", enabled: true }] });
     expect(body.scrape).toMatchObject({ error: null, data: { total: 113, down: [] } });
-    expect(t.calls.filter((c) => c.target === "prometheus")).toHaveLength(6);
+    expect(t.calls.filter((c) => c.target === "prometheus")).toHaveLength(5);
     expect(t.calls.filter((c) => c.target === "alertmanager")).toHaveLength(1);
 
     await call(t.env, "/api/metrics");
-    expect(t.calls).toHaveLength(14); // nothing cached
+    expect(t.calls).toHaveLength(12); // nothing cached
   });
 
   it("shows Prometheus being down as an error in its sections, never older data, and keeps the alerts", async () => {
@@ -206,7 +181,7 @@ describe("GET /api/metrics", () => {
     const res = await call(t.env, "/api/metrics");
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, { data: unknown; error: string | null }>;
-    for (const name of ["machines", "workloads", "volumes", "network", "dns", "scrape"]) {
+    for (const name of ["machines", "workloads", "volumes", "dns", "scrape"]) {
       expect(body[name], name).toEqual({ data: null, error: "connection refused" });
     }
     expect(body.alerts!.error).toBeNull();
@@ -221,6 +196,6 @@ describe("GET /api/metrics", () => {
     });
     const body = (await (await call(t.env, "/api/metrics")).json()) as Record<string, { data: unknown; error: string | null }>;
     expect(body.dns).toEqual({ data: null, error: "Prometheus: parse error" });
-    expect(body.network!.error).toBeNull();
+    expect(body.scrape!.error).toBeNull();
   });
 });

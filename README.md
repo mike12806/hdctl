@@ -2,13 +2,14 @@
 
 **The control plane for the HDC (home data center).** One page that shows
 whether everything in the lab is up, and lets you act on it: sync Argo CD
-apps, start or reboot Proxmox guests, and run GitHub Actions workflows. Every
-action lands in an audit log.
+apps, start or reboot Proxmox guests, restart UniFi devices and power-cycle
+PoE ports, and run GitHub Actions workflows. Every action lands in an audit
+log.
 
 It runs entirely on Cloudflare: a single Worker serves the React app and its
 API, and Cloudflare Access gates it. **Everything a page shows about the lab
-is fetched live from its source on that request**: the targets themselves,
-Argo CD, Proxmox, GitHub. D1 keeps only what no backend can give back (check
+is fetched live from its source on that request**, through that system's own
+API: the targets themselves, Argo CD, Proxmox, the UDM, GitHub. D1 keeps only what no backend can give back (check
 history and the audit log), and KV is a cache that can't serve stale data (see
 [Where the data comes from](#where-the-data-comes-from)). The Worker reaches the LAN privately over Workers VPC through the existing
 `kubernetes` Cloudflare Tunnel, with **no inbound path into the homelab** and
@@ -23,9 +24,10 @@ isn't itself in the cluster.
 | Panel | What it shows | What it can do |
 |---|---|---|
 | **Status** | 29 endpoints probed live on every refresh: state, latency, HTTP code; plus a 2-hour history strip and 24-hour uptime from checks recorded every 2 minutes. Vault nodes report active / standby / sealed | Refresh |
-| **Metrics** | From Prometheus and Alertmanager, live: firing alerts; workloads that need attention and containers restarted in the last hour; CPU, RAM, root disk, load and uptime for every machine with a node exporter (k3s nodes, Proxmox, PBS, PDM); the fullest volumes; WAN throughput and latency, Wi-Fi and wired clients, access points and the last speed test (UniFi, via unpoller); each Pi-hole's queries and blocking; scrape targets that are down | Read only |
+| **Metrics** | From Prometheus and Alertmanager, live: firing alerts; workloads that need attention and containers restarted in the last hour; CPU, RAM, root disk, load and uptime for every machine with a node exporter (k3s nodes, Proxmox, PBS, PDM); the fullest volumes; each Pi-hole's queries and blocking; scrape targets that are down | Read only |
 | **Argo CD** | Every Application's health, sync, and last operation | Refresh (normal or hard), Sync (never prunes) |
 | **Proxmox** | All 7 standalone hosts: node CPU/RAM/uptime and every VM and CT | Start, shut down, reboot (ACPI; no hard stop) |
+| **UniFi** | From the UDM's own Network API, live: WAN throughput, availability and ISP, internet latency, the last speed test, gateway CPU/RAM; every adopted gateway, switch and access point with its state, firmware (and any upgrade), clients and PoE ports; every connected client and where it connects | Restart a device, flash its LED, power-cycle a PoE port, reconnect a Wi-Fi client, run a speed test |
 | **Actions** | Recent runs across `gh_hdc` and `public-jobs`, and every active workflow | Run any `workflow_dispatch` workflow, with a form built from its own inputs |
 | **Audit** | Every action above: who, what, when, outcome | Read only |
 
@@ -83,10 +85,11 @@ Service locked to one `host:port`. Even a compromised Worker could reach those
 IP**, so they need neither the gateway nor Pi-hole/CoreDNS. HTTPS hops use
 `verify_full`: cloudflared connects to the IP and checks the certificate
 against the name in the URL (the SNI), e.g. `pve4.mfaherty.net` at
-`192.168.1.12`. Nothing turns certificate verification off. The UDM's HTTPS
-port only has a self-signed `unifi.local` certificate, so its check is plain
-HTTP on port 80 (its redirect to HTTPS is the liveness signal) and no
-credentials go there.
+`192.168.1.12`. Nothing turns certificate verification off. The UDM's own
+certificate is a self-signed `unifi.local` one that Workers VPC can't verify,
+so the UDM carries a Cloudflare Origin CA certificate for `unifi.mfaherty.net`
+(Workers VPC trusts Origin CA), and is reached at `192.168.1.1:443` as that
+name (see [UniFi](#unifi-the-udms-api)).
 
 **What still depends on the cluster.** The tunnel's connectors are the
 in-cluster `cloudflared` Deployment. If k3s is down, hdctl still loads and
@@ -130,12 +133,19 @@ and 100,000 written a day, and the cron alone writes about 144,000.
 
 ## Where the data comes from
 
+**Always the system's own API.** Each panel asks the system it describes,
+directly: never an exporter, a metrics pipeline or another tool's copy of the
+data. The network comes from the UDM's Network API, not unpoller; Prometheus
+and Alertmanager are the source only for alerts and for what exists only as
+metrics. (This rule is also in `CLAUDE.md`.)
+
 | Shown on | Source, on every request | Cached? | Kept in D1 |
 |---|---|---|---|
 | Status: state, latency, HTTP code | Live probe of each target through its VPC Service | No | — |
 | Status: duration, history strip, 24 h uptime | D1 (recorded by the cron every 2 min) | — | `checks`, `target_state` |
 | Argo CD | Argo CD API | **No**: it sends no validators, so a copy could never be confirmed | — |
 | Proxmox | Each host's API (`/cluster/resources`) | **No**, same reason | — |
+| UniFi | The UDM's Network API (`/proxy/network/api/s/default/stat/health`, `stat/device`, `stat/sta`), with a UniFi API key | **No**, same reason. Each of the three shows its own error if it fails | — |
 | Metrics | Prometheus (`/api/v1/query`, one PromQL query per section) and Alertmanager (`/api/v2/alerts`), through their own VPC Services | **No**, same reason. A section whose query fails shows its error and no data; the rest still render | — |
 | GitHub runs, workflows, dispatch inputs | GitHub API | **KV, revalidated on every read** | — |
 | Audit | D1 | — | `audit_log` |
@@ -286,7 +296,7 @@ erDiagram
 | Worker verifies the JWT itself | RS256 against Access's JWKS, `aud` = the app's AUD, `iss` = the team domain, expiry, and email ∈ `ALLOWED_EMAILS`. Assets included (`run_worker_first`) |
 | CSRF | State-changing calls need `X-Hdctl: 1` and a same-origin `Origin`; a cross-site page can't send that header without a CORS preflight, which is never approved |
 | Pinned VPC Services | 29 `host:port` pins; no VPC Network binding; TLS `verify_full` everywhere it's HTTPS |
-| Narrow actions | Argo: account `hdctl` with RBAC `applications, get` + `sync` only; sync never prunes. Proxmox: start / shutdown / reboot only, validated host + node + type + vmid. GitHub: only repos in `GITHUB_REPOS`, only workflows with `workflow_dispatch`, inputs checked against the workflow's own definition |
+| Narrow actions | Argo: account `hdctl` with RBAC `applications, get` + `sync` only; sync never prunes. Proxmox: start / shutdown / reboot only, validated host + node + type + vmid. GitHub: only repos in `GITHUB_REPOS`, only workflows with `workflow_dispatch`, inputs checked against the workflow's own definition. UniFi: restart, locate, PoE power-cycle, Wi-Fi reconnect and speed test only (no adopt, forget, block or config changes); the device must be one this site has adopted, a port must be supplying PoE, a client must be connected over Wi-Fi, all as the UDM reports them just before the command |
 | Audit | Every action is written to D1 *before* it runs and finished after |
 | Secrets | Only in Vault; synced to Worker secrets by the deploy workflow; never in git |
 | Headers | CSP `default-src 'self'`, `frame-ancestors 'none'`, `nosniff`, `no-referrer` |
@@ -348,6 +358,34 @@ flowchart LR
    under `database_name`, and `id = "…"` under `binding = "CACHE"`, in
    `worker/wrangler.toml`.
 
+### UniFi: the UDM's API
+
+The UniFi page talks to the UDM's Network application directly. Two things
+are needed once, in this order:
+
+1. **A certificate Workers VPC can verify.** Issue a Cloudflare Origin CA
+   certificate for `unifi.mfaherty.net` (SSL/TLS › Origin Server, 15 years)
+   and install it as the UDM's UniFi OS certificate. Store the pair in Vault
+   so it can be reinstalled after a firmware update. Then update gh_hdc's
+   `kubernetes/nginx-gateway-fabric/policies/unifi-backend-tls.yaml` in the
+   same change: its `BackendTLSPolicy` validates `unifi.local` against the old
+   self-signed CA, so the browser route at `unifi.mfaherty.net` breaks until
+   it validates `unifi.mfaherty.net` against the Origin CA root.
+2. **An API key.** In UniFi OS, add a local admin `hdctl` with only the
+   Network application at *Site Admin* (the restart, PoE and reconnect
+   commands need more than read-only), create an API key for it
+   (*Control Plane › Integrations*), and store it:
+   ```bash
+   vault kv put kv/github/hdctl/unifi UNIFI_API_KEY=…
+   ```
+   The deploy reads it in the same Vault step as the others, so it fails
+   until this exists.
+3. **The VPC Service.** With a Connectivity Directory Admin token,
+   `npm run vpc:sync` creates `hdctl-unifi-https` (192.168.1.1:443,
+   `verify_full`) and regenerates the binding; commit both files. CI's
+   `vpc:check` fails until then. The old `hdctl-unifi` service (port 80) can
+   be deleted afterwards.
+
 ## Deploy pipeline
 
 ```mermaid
@@ -359,7 +397,7 @@ flowchart LR
   aud -->|yes| vault["vault-secrets<br/>GitHub OIDC → Tailscale tag:ci-vault<br/>→ Vault role hdctl-deploy"]
   vault --> d1["resolve / create hdctl-db + hdctl-cache<br/>apply migrations"]
   d1 --> dep["wrangler deploy --var BUILD_ID:sha<br/>(Worker + assets built with the same id)"]
-  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN"]
+  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN · UNIFI_API_KEY"]
 ```
 
 The Vault role `hdctl-deploy` reads `kv/github/hdctl/*`, `kv/ci/proxmox` and
@@ -381,7 +419,7 @@ Service.
 | Vault | vault-1 … vault-5 | `192.168.1.x:8200`, TLS for `vault-N.mfaherty.net` |
 | Backup | PBS, PDM | `.37:8007`, `.89:8443`, Let's Encrypt certificates |
 | Storage | truenas1, truenas2 | `.108:443`, `.85:443` |
-| Network | UDM | `192.168.1.1:80` (redirect = alive) |
+| Network | UDM | `192.168.1.1:443`, TLS for `unifi.mfaherty.net` (Cloudflare Origin CA certificate) |
 | Apps (off-cluster) | Home Assistant, Gitea | `192.168.5.169:8123`, `192.168.9.3:3000` |
 | Cluster apps | Argo CD, Harbor, Immich, Authentik, Paperless, Emby, Open WebUI, LiteLLM | `*.svc.cluster.local` |
 
@@ -419,10 +457,10 @@ worker/
     cache.ts          KV cache that only serves origin-confirmed (304) copies
     audit.ts          audited() wrapper + audit log reads
     targets.ts        target catalog + VPC fetch helper
-    integrations/     argo.ts · proxmox.ts · github.ts · prometheus.ts
+    integrations/     argo.ts · proxmox.ts · unifi.ts · github.ts · prometheus.ts
   test/               vitest, see "Tests" below
 client/
-  src/pages/          Status · Argo · Proxmox · Actions · Audit
+  src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Actions · Audit
   src/components/     pills, meters, confirm dialog
   test/               vitest + jsdom: polling, the API wrapper, reload on deploy
 .github/workflows/    ci.yml (PRs) · deploy.yml (main)
@@ -443,6 +481,7 @@ DEV_MODE=true
 PVE_TOKENS='{"pve":"USER@REALM!TOKENID=SECRET", "pve2": "…"}'
 GITHUB_TOKEN=…
 ARGOCD_TOKEN=…
+UNIFI_API_KEY=…
 ```
 
 Then run with a token that can bind VPC Services (the VPC bindings are
@@ -483,7 +522,12 @@ fake api.github.com. They pin down what matters most:
 - KV answers only after GitHub's 304; an outage is an error, never the cached copy;
 - the Metrics page asks Prometheus and Alertmanager on every request, one query
   per section; a section that fails shows its error, never older data, and the
-  parsers name machines, workloads and alerts correctly.
+  parsers name machines, workloads and alerts correctly;
+- the UniFi page asks only the UDM, with its API key, on every request; a
+  failed call shows as that section's error; the UDM target stays HTTPS with
+  `verify_full`; and every UniFi action is checked against what the UDM
+  reports first (adopted device, PoE port, Wi-Fi client), sends exactly one
+  command, and is audited.
 
 The client tests cover the polling hook (a failed refresh clears the data, data
 older than two intervals is withheld, a late answer can't replace a newer one,

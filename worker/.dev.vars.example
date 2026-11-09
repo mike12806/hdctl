@@ -5,3 +5,5 @@ DEV_MODE=true
 PVE_TOKENS='{"pve":"","pve2":"","pve3":"","pve4":"","pve5":"","pve6":"","pve7":""}'
 GITHUB_TOKEN=
 ARGOCD_TOKEN=
+# UniFi OS API key for the UDM (Vault kv/github/hdctl/unifi)
+UNIFI_API_KEY=

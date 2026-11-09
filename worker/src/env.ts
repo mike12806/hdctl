@@ -14,6 +14,8 @@ export interface Env {
   ARGOCD_TOKEN?: string;
   PVE_TOKENS?: string;
   GITHUB_TOKEN?: string;
+  /** A UniFi OS API key (X-API-KEY) for the UDM's Network application. */
+  UNIFI_API_KEY?: string;
 
   /** Identifies the deployed build (the git SHA); the client reloads when it changes. */
   BUILD_ID?: string;

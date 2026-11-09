@@ -129,7 +129,7 @@ describe("caching headers", () => {
 describe("errors", () => {
   it("answers 503 with a setup hint while an integration's secret is missing, without calling out", async () => {
     const t = testEnv();
-    for (const path of ["/api/argo/apps", "/api/proxmox", "/api/github/runs"]) {
+    for (const path of ["/api/argo/apps", "/api/proxmox", "/api/github/runs", "/api/unifi"]) {
       const res = await call(t.env, path);
       expect(res.status, path).toBe(503);
       expect(await res.json(), path).toMatchObject({ setup: true });
