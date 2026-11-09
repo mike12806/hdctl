@@ -3,6 +3,7 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import { NEW_BUILD_EVENT, api } from "./api";
 import { reloadPage } from "./reload";
 import { StatusPage } from "./pages/Status";
+import { MetricsPage } from "./pages/Metrics";
 import { ArgoPage } from "./pages/Argo";
 import { ProxmoxPage } from "./pages/Proxmox";
 import { ActionsPage } from "./pages/Actions";
@@ -10,6 +11,7 @@ import { AuditPage } from "./pages/Audit";
 
 const NAV = [
   { to: "/", label: "Status", end: true },
+  { to: "/metrics", label: "Metrics" },
   { to: "/argo", label: "Argo CD" },
   { to: "/proxmox", label: "Proxmox" },
   { to: "/actions", label: "Actions" },
@@ -73,6 +75,7 @@ export function App() {
       <main className="content">
         <Routes>
           <Route path="/" element={<StatusPage />} />
+          <Route path="/metrics" element={<MetricsPage />} />
           <Route path="/argo" element={<ArgoPage />} />
           <Route path="/proxmox" element={<ProxmoxPage />} />
           <Route path="/actions" element={<ActionsPage />} />
