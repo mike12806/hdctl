@@ -10,6 +10,7 @@ import * as pve from "./integrations/proxmox";
 import * as github from "./integrations/github";
 import * as prometheus from "./integrations/prometheus";
 import * as unifi from "./integrations/unifi";
+import * as kuma from "./integrations/kuma";
 
 const app = new Hono<AppEnv>();
 
@@ -123,6 +124,17 @@ app.post("/api/unifi/clients/:mac/reconnect", async (c) => {
 });
 app.post("/api/unifi/speedtest", async (c) => c.json(await audited(c.env, who(c), "unifi.speedtest", "unifi/gateway", undefined, () => unifi.speedTest(c.env))));
 
+// Uptime Kuma, pushed live: a WebSocket to the one Durable Object that holds
+// Kuma's Socket.IO connection while anyone is watching. Read-only.
+app.get("/api/kuma/live", async (c) => {
+  if (c.req.header("Upgrade")?.toLowerCase() !== "websocket") return c.json({ error: "expected a WebSocket upgrade" }, 426);
+  // The Access cookie can ride along on a WebSocket opened from another site.
+  if (c.req.header("Origin") !== new URL(c.req.url).origin) return c.json({ error: "cross-site request refused" }, 403);
+  const res = await c.env.KUMA_LIVE.getByName("kuma").fetch(c.req.raw);
+  // Re-wrapped so the header middleware can set its headers.
+  return res.webSocket ? new Response(null, { status: 101, webSocket: res.webSocket }) : new Response(res.body, res);
+});
+
 // GitHub Actions
 app.get("/api/github/runs", async (c) => c.json(await github.recentRuns(runtime(c))));
 app.get("/api/github/workflows", async (c) => c.json(await github.listWorkflows(runtime(c))));
@@ -164,6 +176,8 @@ app.onError((err, c) => {
   console.error(JSON.stringify({ msg: "unhandled", path: c.req.path, error: err instanceof Error ? err.stack ?? err.message : String(err) }));
   return c.json({ error: err instanceof Error ? err.message : "internal error" }, 500);
 });
+
+export { KumaLive } from "./integrations/kuma";
 
 export default {
   fetch: app.fetch,

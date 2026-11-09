@@ -113,24 +113,25 @@ export function PageHeader({ title, subtitle, children }: { title: string; subti
 }
 
 /** 30_000 -> "30 s", 300_000 -> "5 min". */
-export function every(ms: number): string {
+export function intervalLabel(ms: number): string {
   return ms % 60_000 === 0 ? `${ms / 60_000} min` : `${Math.round(ms / 1000)} s`;
 }
 
 /**
- * "live · as of 20:14:03 · auto-refresh 30 s": when the data on screen was
- * fetched from its source, and how it stays current. Says so when refreshing
- * is paused because nobody is using the tab.
+ * "live · as of 20:14:03 · auto-refresh every 30 s": when the data on screen
+ * was fetched from its source, and how often the page refreshes itself, so
+ * nobody has to wonder. Says so when refreshing is paused because nobody is
+ * using the tab (see idle.ts).
  */
-export function AsOf({ at, loading, every: everyMs }: { at: number | null; loading?: boolean; every?: number }) {
+export function AsOf({ at, loading, every }: { at: number | null; loading?: boolean; every?: number }) {
   const idle = useIdle();
   const refresh = idle ? (
     <span className="asof-paused" title="No input for 15 minutes, so nothing is being fetched. Move the mouse or press a key to resume.">
       {" "}
       · auto-refresh paused while idle
     </span>
-  ) : everyMs ? (
-    <span className="muted"> · auto-refresh {every(everyMs)}</span>
+  ) : every ? (
+    <span className="muted"> · auto-refresh every {intervalLabel(every)}</span>
   ) : null;
   if (at === null)
     return (

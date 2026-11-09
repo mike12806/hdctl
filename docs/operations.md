@@ -75,6 +75,46 @@ are needed once, in this order:
    `vpc:check` fails until then. The old `hdctl-unifi` service (port 80) can
    be deleted afterwards.
 
+### Uptime: Uptime Kuma's API, live
+
+The Uptime page and the Status page's Kuma summary are pushed live from
+Kuma's Socket.IO API (the one Kuma's web UI uses) at `192.168.9.7:3001`
+(plain HTTP on the LAN, like Gitea), not through `health.mfaherty.net`,
+which sits behind Access.
+
+```mermaid
+flowchart LR
+  tab["hdctl tabs"] -- "WebSocket /api/kuma/live<br/>(Access-checked, same origin)" --> w["Worker"]
+  w --> do["KumaLive Durable Object<br/>(one instance)"]
+  do -- "Socket.IO over the hdctl-kuma VPC Service<br/>loginByToken, then read-only" --> kuma["Uptime Kuma<br/>192.168.9.7:3001"]
+```
+
+- The Durable Object opens Kuma's connection when the first tab connects
+  and closes it a minute after the last one leaves. Kuma then pushes each
+  heartbeat, and tabs see it within about a second.
+- If Kuma drops or goes quiet past its own ping deadline, every tab shows the
+  error and no monitors; hdctl reconnects (1 s, 2 s, 4 s … 30 s) and sends a
+  fresh snapshot. A refused token is retried once a minute, since Kuma
+  rate-limits logins.
+- Cost: a Durable Object that holds an outbound WebSocket can't hibernate, so
+  it's billed for the time it's connected, which is only while hdctl is open.
+  Even 24/7 it would be about 324,000 GB-s a month, inside the Workers Paid
+  plan's 400,000 included (shared across the account).
+
+1. **A login token.** Kuma 2.x accepts API keys only on `/metrics`, so the
+   live API needs a login. hdctl holds the token Kuma's web UI keeps after
+   you sign in, never the password: sign in at health.mfaherty.net, run
+   `localStorage.getItem("token")` in the browser console, and store it:
+   ```bash
+   vault kv put kv/github/hdctl/kuma KUMA_TOKEN='eyJ…'
+   ```
+   The token doesn't expire on its own. Changing the Kuma password revokes
+   it; store a new one after a password change. It can do anything the Kuma
+   admin can; hdctl sends only `loginByToken` and
+   `monitorImportantHeartbeatListPaged` (a test checks this).
+2. **The VPC Service.** `npm run vpc:sync` creates `hdctl-kuma`
+   (192.168.9.7:3001) and regenerates the binding; commit both files.
+
 ## Deploy pipeline
 
 ```mermaid
@@ -86,7 +126,7 @@ flowchart LR
   aud -->|yes| vault["vault-secrets<br/>GitHub OIDC → Tailscale tag:ci-vault<br/>→ Vault role hdctl-deploy"]
   vault --> d1["resolve / create hdctl-db + hdctl-cache<br/>apply migrations"]
   d1 --> dep["wrangler deploy --var BUILD_ID:sha<br/>(Worker + assets built with the same id)"]
-  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN · UNIFI_API_KEY"]
+  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN · UNIFI_API_KEY · KUMA_TOKEN"]
 ```
 
 The Vault role `hdctl-deploy` reads `kv/github/hdctl/*`, `kv/ci/proxmox` and
@@ -109,7 +149,7 @@ Service.
 | Backup | PBS, PDM | `.37:8007`, `.89:8443`, Let's Encrypt certificates |
 | Storage | truenas1, truenas2 | `.108:443`, `.85:443` |
 | Network | UDM | `192.168.1.1:443`, TLS for `unifi.mfaherty.net` (Cloudflare Origin CA certificate) |
-| Apps (off-cluster) | Home Assistant, Gitea | `192.168.5.169:8123`, `192.168.9.3:3000` |
+| Apps (off-cluster) | Home Assistant, Gitea, Uptime Kuma | `192.168.5.169:8123`, `192.168.9.3:3000`, `192.168.9.7:3001` |
 | Cluster apps | Argo CD, Harbor, Immich, Authentik, Paperless, Emby, Open WebUI, LiteLLM | `*.svc.cluster.local` |
 
 Argo CD's and Gitea's VPC Services are shared with gh_hdc's `argo-webhook` and

@@ -64,6 +64,7 @@ jobs:
             kv/data/github/hdctl/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
             kv/data/github/hdctl/argo ARGOCD_TOKEN | ARGOCD_TOKEN ;
             kv/data/github/hdctl/unifi UNIFI_API_KEY | UNIFI_API_KEY ;
+            kv/data/github/hdctl/kuma KUMA_TOKEN | KUMA_TOKEN ;
             kv/data/ci/github GH_HDC_PAT | HDCTL_GITHUB_TOKEN ;
             kv/data/ci/proxmox PVE_TOKEN_ID | PVE_TOKEN_ID ;
             kv/data/ci/proxmox PVE_SECRET | PVE_SECRET ;
@@ -168,9 +169,10 @@ jobs:
             --arg PVE_TOKENS "$PVE_TOKENS" \
             --arg GITHUB_TOKEN "$HDCTL_GITHUB_TOKEN" \
             --arg UNIFI_API_KEY "$UNIFI_API_KEY" \
-            '{ARGOCD_TOKEN: $ARGOCD_TOKEN, PVE_TOKENS: $PVE_TOKENS, GITHUB_TOKEN: $GITHUB_TOKEN, UNIFI_API_KEY: $UNIFI_API_KEY} | with_entries(select(.value != ""))' \
+            --arg KUMA_TOKEN "$KUMA_TOKEN" \
+            '{ARGOCD_TOKEN: $ARGOCD_TOKEN, PVE_TOKENS: $PVE_TOKENS, GITHUB_TOKEN: $GITHUB_TOKEN, UNIFI_API_KEY: $UNIFI_API_KEY, KUMA_TOKEN: $KUMA_TOKEN} | with_entries(select(.value != ""))' \
             > "$RUNNER_TEMP/secrets.json"
-          for k in ARGOCD_TOKEN PVE_TOKENS GITHUB_TOKEN UNIFI_API_KEY; do
+          for k in ARGOCD_TOKEN PVE_TOKENS GITHUB_TOKEN UNIFI_API_KEY KUMA_TOKEN; do
             jq -e --arg k "$k" 'has($k)' "$RUNNER_TEMP/secrets.json" >/dev/null || echo "::warning::$k is empty in Vault; that panel will show a setup note"
           done
           npx wrangler secret bulk "$RUNNER_TEMP/secrets.json"

@@ -17,6 +17,7 @@ metrics. (This rule is also in `CLAUDE.md`.)
 | Argo CD | Argo CD API | **No**: it sends no validators, so a copy could never be confirmed | — |
 | Proxmox | Each host's API (`/cluster/resources`) | **No**, same reason | — |
 | UniFi | The UDM's Network API (`/proxy/network/api/s/default/stat/health`, `stat/device`, `stat/sta`), with a UniFi API key | **No**, same reason. Each of the three shows its own error if it fails | — |
+| Uptime | Uptime Kuma's own Socket.IO API, with a Kuma login token: one connection, held by the `KumaLive` Durable Object only while a tab is watching, relayed to each tab over a WebSocket as Kuma pushes each heartbeat | **No.** The Durable Object keeps only what the open connection has said; when it drops, every tab shows the error and no data until a fresh snapshot arrives. A tab that hears nothing for 50 s (hdctl says "alive" every 20 s) drops its data too | — |
 | Metrics | Prometheus (`/api/v1/query`, one PromQL query per section) and Alertmanager (`/api/v2/alerts`), through their own VPC Services | **No**, same reason. A section whose query fails shows its error and no data; the rest still render | — |
 | GitHub runs, workflows, dispatch inputs | GitHub API | **KV, revalidated on every read** | — |
 | Audit | D1 | — | `audit_log` |
@@ -153,7 +154,7 @@ erDiagram
 | `/assets/*` (JS, CSS) | Content-hashed names, `immutable` for a year: changed content gets a new name, so an old file can't be served for a new one |
 | An open tab after a deploy | Every response carries `X-Hdctl-Build` (the git SHA). A tab running an older bundle reloads itself, or asks first if a confirmation dialog is open |
 | Back/forward navigation | A page restored from the browser's back/forward cache reloads instead of showing what it showed back then |
-| Data on screen | Every page refreshes itself (every 30 s; Actions runs every 20 s) and says so: **live · as of** the time its data was fetched **· auto-refresh 30 s**. A failed refresh clears the panel and shows the error; data older than two poll intervals (sleeping laptop, hidden tab) is withheld until a fresh answer arrives |
+| Data on screen | Every page refreshes itself (every 30 s; Actions runs every 20 s) and says so: **live · as of** the time its data was fetched **· auto-refresh every 30 s**. A failed refresh clears the panel and shows the error; data older than two poll intervals (sleeping laptop, hidden tab) is withheld until a fresh answer arrives |
 | A page left open | Polling stops while the tab is hidden, and after 15 minutes without input (the header says **auto-refresh paused while idle**), so a forgotten tab sends nothing to the Worker or the systems behind it. The next key press, click or scroll, or coming back to the tab, loads fresh data at once |
 | Service worker | None, so there's no offline cache
 

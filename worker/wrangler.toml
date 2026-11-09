@@ -51,6 +51,17 @@ binding = "CACHE"
 # hdctl-cache, created by the first deploy. The deploy checks this still matches.
 id = "d4206a06e16d4e55861592e640efddd2"
 
+# One instance ("kuma") holds the live Socket.IO connection to Uptime Kuma while
+# any tab is watching, and closes it a minute after the last one leaves. See
+# src/integrations/kuma.ts.
+[[durable_objects.bindings]]
+name = "KUMA_LIVE"
+class_name = "KumaLive"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["KumaLive"]
+
 [observability]
 enabled = true
 head_sampling_rate = 1
@@ -80,6 +91,8 @@ BUILD_ID = "dev"
 #   ARGOCD_TOKEN   API token of the Argo CD local account `hdctl`
 #   PVE_TOKENS     JSON {"pve": "USER@REALM!TOKENID=SECRET", ...}, keyed by target id
 #   GITHUB_TOKEN   PAT that can read Actions and dispatch workflows
+#   UNIFI_API_KEY  UniFi OS API key for the UDM's Network application
+#   KUMA_TOKEN     Uptime Kuma login token (the JWT its web UI keeps)
 # For local dev, put them in worker/.dev.vars along with DEV_MODE=true.
 
 # Workers VPC: one pinned service per target in infra/targets.json.
@@ -177,6 +190,11 @@ remote = true
 [[vpc_services]]
 binding = "GITEA"
 service_id = "01a10ebb-18a5-77b2-8b38-cad8d4812332"
+remote = true
+
+[[vpc_services]]
+binding = "KUMA"
+service_id = "01a1c173-7ad0-7a63-8ae3-b3bb89b4595b"
 remote = true
 
 [[vpc_services]]

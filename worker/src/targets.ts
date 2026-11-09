@@ -59,3 +59,11 @@ export function targetFetch(env: Env, target: Target, path: string, init: Reques
     signal: init.signal ?? AbortSignal.timeout(timeoutMs),
   });
 }
+
+/**
+ * A WebSocket upgrade through a target's VPC Service. No timeout: the
+ * connection is meant to stay open, and the caller times out the handshake.
+ */
+export function targetWebSocket(env: Env, target: Target, path: string, headers: Record<string, string> = {}): Promise<Response> {
+  return bindingFor(env, target).fetch(`${target.scheme}://${target.host}${path}`, { headers: { Upgrade: "websocket", ...headers } });
+}
