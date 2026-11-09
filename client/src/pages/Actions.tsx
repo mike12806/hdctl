@@ -40,7 +40,7 @@ export function ActionsPage() {
         title="Actions"
         subtitle={
           <>
-            <AsOf at={Number.isFinite(fetchedAt) ? fetchedAt : null} loading={ghRuns.loading || gtRuns.loading} every={20_000} /> · recent runs and workflow dispatch, GitHub and Gitea
+            <AsOf at={Number.isFinite(fetchedAt) ? fetchedAt : null} loading={ghRuns.loading || gtRuns.loading} every={ghRuns.intervalMs} /> · recent runs and workflow dispatch, GitHub and Gitea
           </>
         }
       >

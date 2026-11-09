@@ -9,7 +9,7 @@ import { AsOf, Block, Dot, ErrorNote, Loading, Meter, Ok, PageHeader, Pill, type
  * The network has its own page (UniFi), straight from the UDM's API.
  */
 export function MetricsPage() {
-  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<MetricsOverview>("/api/metrics"), 30_000);
+  const { data, fetchedAt, error, loading, reload, intervalMs } = usePoll(() => api<MetricsOverview>("/api/metrics"), 30_000);
   const now = useNow();
 
   return (
@@ -18,7 +18,7 @@ export function MetricsPage() {
         title="Metrics"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} every={30_000} /> · Prometheus and Alertmanager, asked on each refresh
+            <AsOf at={fetchedAt} loading={loading} every={intervalMs} /> · Prometheus and Alertmanager, asked on each refresh
           </>
         }
       >

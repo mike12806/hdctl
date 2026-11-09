@@ -11,7 +11,7 @@ const OP: Record<string, Tone> = { Succeeded: "good", Running: "info", Terminati
 type Pending = { app: ArgoApp; kind: "sync" | "refresh" | "hard-refresh" } | null;
 
 export function ArgoPage() {
-  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<ArgoApp[]>("/api/argo/apps"), 30_000);
+  const { data, fetchedAt, error, loading, reload, intervalMs } = usePoll(() => api<ArgoApp[]>("/api/argo/apps"), 30_000);
   const [filter, setFilter] = useState("");
   const [attention, setAttention] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
@@ -41,7 +41,7 @@ export function ArgoPage() {
         title="Argo CD"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} every={30_000} />
+            <AsOf at={fetchedAt} loading={loading} every={intervalMs} />
             {data ? ` · ${data.length} applications · ${unhealthy} not healthy · ${outOfSync} out of sync` : ""}
           </>
         }
