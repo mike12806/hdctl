@@ -167,6 +167,8 @@ p { margin: 0 0 0.75rem; }
 .tick-bad { background: var(--bad); }
 .tick-empty { background: var(--panel-2); }
 .tick-info { background: var(--info); }
+.forge-tag { font-size: 10px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.05em; padding: 0 5px; border-radius: 4px; background: var(--info-bg); color: var(--info); margin-left: 6px; }
+.forge-error + .forge-error { margin-top: 6px; }
 .card-foot { display: flex; justify-content: space-between; font-size: 11px; }
 
 /* --- Tables ---------------------------------------------------------------- */
