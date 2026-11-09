@@ -9,7 +9,7 @@ import { UpstreamError } from "../errors";
  * Every request asks both, live: Prometheus sends no validators, so there is
  * nothing a cache could safely revalidate. Each page section is one PromQL
  * query (sub-expressions tagged with an `m` label and joined with `or`), so a
- * refresh is six Prometheus calls plus one to Alertmanager. A section whose
+ * refresh is five Prometheus calls plus one to Alertmanager. A section whose
  * query fails comes back as its error with no data; the others still render.
  */
 
@@ -199,50 +199,6 @@ export function parseVolumes(samples: Sample[]): Volumes {
   return { count: used.size, fullest };
 }
 
-// --- Network: UniFi, through unpoller -----------------------------------------------
-
-export const NETWORK_QUERY = `{__name__=~"unpoller_device_wan_(receive_rate_bytes|transmit_rate_bytes|latency_seconds|availability_percent)|unpoller_site_(users|guests|aps|disconnected|xput_down_rate|xput_up_rate|speedtest_ping|latency_seconds)"}`;
-
-export interface Network {
-  wans: { device: string; port: string; downloadBps: number | null; uploadBps: number | null; latencyMs: number | null; availability: number | null }[];
-  wifiClients: number | null;
-  wiredClients: number | null;
-  vpnClients: number | null;
-  guests: number | null;
-  accessPoints: number | null;
-  disconnectedDevices: number | null;
-  internetLatencyMs: number | null;
-  speedtest: { downMbps: number | null; upMbps: number | null; pingMs: number | null };
-}
-
-export function parseNetwork(samples: Sample[]): Network {
-  const named = (name: string) => samples.filter((s) => s.metric.__name__ === `unpoller_${name}`);
-  const site = (name: string, subsystem?: string) => {
-    const xs = named(`site_${name}`).filter((s) => !subsystem || s.metric.subsystem === subsystem);
-    return xs.length ? xs.reduce((sum, s) => sum + s.value, 0) : null;
-  };
-  const wanKey = (s: Sample) => `${s.metric.name}|${s.metric.port}`;
-  const wan = (name: string) => new Map(named(`device_wan_${name}`).map((s) => [wanKey(s), s.value]));
-  const rx = wan("receive_rate_bytes"), tx = wan("transmit_rate_bytes"), lat = wan("latency_seconds"), avail = wan("availability_percent");
-  const keys = [...new Set([...rx.keys(), ...tx.keys(), ...lat.keys()])].sort(natural);
-  const ms = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? null : Math.round(v * 1000));
-  return {
-    // From the gateway's WAN port: received = download, sent = upload.
-    wans: keys.map((k) => {
-      const [device = "", port = ""] = k.split("|");
-      return { device, port, downloadBps: finite(rx.get(k)), uploadBps: finite(tx.get(k)), latencyMs: ms(lat.get(k)), availability: finite(avail.get(k)) };
-    }),
-    wifiClients: site("users", "wlan"),
-    wiredClients: site("users", "lan"),
-    vpnClients: site("users", "vpn"),
-    guests: site("guests"),
-    accessPoints: site("aps", "wlan"),
-    disconnectedDevices: site("disconnected"),
-    internetLatencyMs: ms(site("latency_seconds", "www")),
-    speedtest: { downMbps: site("xput_down_rate", "www"), upMbps: site("xput_up_rate", "www"), pingMs: site("speedtest_ping", "www") },
-  };
-}
-
 // --- DNS: the Pi-holes, through pihole-exporter ---------------------------------------
 
 export const DNS_QUERY = `{__name__=~"pihole_(dns_queries_today|ads_blocked_today|ads_percentage_today|status|unique_clients)"}`;
@@ -358,14 +314,14 @@ async function alertmanagerAlerts(env: Env): Promise<Alert[]> {
 
 export async function overview(env: Env) {
   const q = <T>(expr: string, parse: (s: Sample[]) => T) => section(async () => parse(await query(env, expr)));
-  const [alerts, machines, workloads, volumes, network, dns, scrape] = await Promise.all([
+  // The network isn't here: it comes from the UDM's own API (integrations/unifi.ts), not unpoller.
+  const [alerts, machines, workloads, volumes, dns, scrape] = await Promise.all([
     section(() => alertmanagerAlerts(env)),
     q(MACHINES_QUERY, parseMachines),
     q(WORKLOADS_QUERY, parseWorkloads),
     q(VOLUMES_QUERY, parseVolumes),
-    q(NETWORK_QUERY, parseNetwork),
     q(DNS_QUERY, parseDns),
     q(SCRAPE_QUERY, parseScrape),
   ]);
-  return { asOf: Date.now(), alerts, machines, workloads, volumes, network, dns, scrape };
+  return { asOf: Date.now(), alerts, machines, workloads, volumes, dns, scrape };
 }
