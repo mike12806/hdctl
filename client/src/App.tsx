@@ -9,6 +9,7 @@ import { ProxmoxPage } from "./pages/Proxmox";
 import { UnifiPage } from "./pages/Unifi";
 import { KumaPage } from "./pages/Kuma";
 import { ActionsPage } from "./pages/Actions";
+import { PullsPage } from "./pages/Pulls";
 import { AuditPage } from "./pages/Audit";
 
 const NAV = [
@@ -19,6 +20,7 @@ const NAV = [
   { to: "/unifi", label: "UniFi" },
   { to: "/uptime", label: "Uptime" },
   { to: "/actions", label: "Actions" },
+  { to: "/pulls", label: "Pull requests" },
   { to: "/audit", label: "Audit" },
 ];
 
@@ -85,6 +87,7 @@ export function App() {
           <Route path="/unifi" element={<UnifiPage />} />
           <Route path="/uptime" element={<KumaPage />} />
           <Route path="/actions" element={<ActionsPage />} />
+          <Route path="/pulls" element={<PullsPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="*" element={<StatusPage />} />
         </Routes>

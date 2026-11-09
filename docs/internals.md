@@ -20,6 +20,7 @@ metrics. (This rule is also in `CLAUDE.md`.)
 | Uptime | Uptime Kuma's own Socket.IO API, with a Kuma login token: one connection, held by the `KumaLive` Durable Object only while a tab is watching, relayed to each tab over a WebSocket as Kuma pushes each heartbeat | **No.** The Durable Object keeps only what the open connection has said; when it drops, every tab shows the error and no data until a fresh snapshot arrives. A tab that hears nothing for 50 s (hdctl says "alive" every 20 s) drops its data too | — |
 | Metrics | Prometheus (`/api/v1/query`, one PromQL query per section) and Alertmanager (`/api/v2/alerts`), through their own VPC Services | **No**, same reason. A section whose query fails shows its error and no data; the rest still render | — |
 | GitHub runs, workflows, dispatch inputs | GitHub API | **KV, revalidated on every read** | — |
+| Pull requests | GitHub: one GraphQL search (`is:pr is:open archived:false user:…`) with checks, mergeability and review. Gitea: `/repos/{repo}/pulls` and each head commit's combined status | **No** (GraphQL is a POST; Gitea isn't cached) | — |
 | Gitea runs, workflows, dispatch inputs | Gitea's own API (`/api/v1`, Actions endpoints) through the `GITEA` VPC Service, with a Gitea token | **No** | — |
 | Audit | D1 | — | `audit_log` |
 
