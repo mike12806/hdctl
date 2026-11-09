@@ -109,11 +109,14 @@ export interface PveHost {
   guests: PveGuest[];
 }
 
+export type Forge = "github" | "gitea";
+
 export interface WorkflowRun {
+  forge: Forge;
   id: number;
   repo: string;
   workflow: string;
-  workflowId: number;
+  workflowId: number | string;
   title: string;
   event: string;
   status: string;
@@ -128,10 +131,13 @@ export interface WorkflowRun {
 }
 
 export interface Workflow {
+  forge: Forge;
   repo: string;
-  id: number;
+  id: number | string;
   name: string;
   file: string;
+  /** Where the file lives: .github/workflows/… or .gitea/workflows/… */
+  path: string;
   url: string;
 }
 
@@ -147,6 +153,7 @@ export interface DispatchInput {
 export interface WorkflowInputs {
   repo: string;
   file: string;
+  path: string;
   ref: string;
   dispatchable: boolean;
   inputs: DispatchInput[];
