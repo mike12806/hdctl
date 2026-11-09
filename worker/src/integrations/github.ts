@@ -116,6 +116,7 @@ export async function recentRuns(rt: Runtime, perRepo = 15) {
     (await repos(rt)).map(async (repo) => {
       const body = await orNone(gh<{ workflow_runs: Run[] }>(rt, `/repos/${repo}/actions/runs?per_page=${perRepo}`), { workflow_runs: [] });
       return body.workflow_runs.map((r) => ({
+        forge: "github" as const,
         id: r.id,
         repo,
         workflow: r.name,
@@ -145,7 +146,7 @@ export async function listWorkflows(rt: Runtime) {
       const body = await orNone(gh<{ workflows: Workflow[] }>(rt, `/repos/${repo}/actions/workflows?per_page=100`), { workflows: [] });
       return body.workflows
         .filter((w) => w.state === "active" && w.path.startsWith(".github/workflows/"))
-        .map((w) => ({ repo, id: w.id, name: w.name, file: w.path.replace(".github/workflows/", ""), url: w.html_url }));
+        .map((w) => ({ forge: "github" as const, repo, id: w.id, name: w.name, file: w.path.replace(".github/workflows/", ""), path: w.path, url: w.html_url }));
     }),
   );
   return lists.flat().sort((a, b) => a.repo.localeCompare(b.repo) || a.name.localeCompare(b.name));
@@ -211,7 +212,7 @@ export async function workflowInputs(rt: Runtime, repo: string, file: string) {
     "text",
   );
   const inputs = dispatchInputs(source);
-  return { repo, file, ref, dispatchable: inputs !== null, inputs: inputs ?? [] };
+  return { repo, file, path: `.github/workflows/${file}`, ref, dispatchable: inputs !== null, inputs: inputs ?? [] };
 }
 
 /** Run a workflow on its default branch. Input values are sent as strings, as GitHub expects. */

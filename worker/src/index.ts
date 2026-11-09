@@ -8,6 +8,7 @@ import { audited, recentAudit } from "./audit";
 import * as argo from "./integrations/argo";
 import * as pve from "./integrations/proxmox";
 import * as github from "./integrations/github";
+import * as gitea from "./integrations/gitea";
 import * as prometheus from "./integrations/prometheus";
 import * as unifi from "./integrations/unifi";
 import * as kuma from "./integrations/kuma";
@@ -147,6 +148,20 @@ app.post("/api/github/workflows/:owner/:repo/:file/dispatch", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { inputs?: Record<string, unknown> };
   const full = await github.assertRepo(runtime(c), `${owner}/${repo}`);
   return c.json(await audited(c.env, who(c), "github.dispatch", `${full}/${file}`, body.inputs ?? {}, () => github.dispatch(runtime(c), full, file, body.inputs ?? {})));
+});
+
+// Gitea Actions: every repository on the Gitea instance, from Gitea's own API.
+app.get("/api/gitea/runs", async (c) => c.json(await gitea.recentRuns(c.env)));
+app.get("/api/gitea/workflows", async (c) => c.json(await gitea.listWorkflows(c.env)));
+app.get("/api/gitea/workflows/:owner/:repo/:file", async (c) => {
+  const { owner, repo, file } = c.req.param();
+  return c.json(await gitea.workflowInputs(c.env, `${owner}/${repo}`, file));
+});
+app.post("/api/gitea/workflows/:owner/:repo/:file/dispatch", async (c) => {
+  const { owner, repo, file } = c.req.param();
+  const body = (await c.req.json().catch(() => ({}))) as { inputs?: Record<string, unknown> };
+  const full = `${owner}/${repo}`;
+  return c.json(await audited(c.env, who(c), "gitea.dispatch", `gitea/${full}/${file}`, body.inputs ?? {}, () => gitea.dispatch(c.env, full, file, body.inputs ?? {})));
 });
 
 // Audit log

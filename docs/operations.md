@@ -115,6 +115,21 @@ flowchart LR
 2. **The VPC Service.** `npm run vpc:sync` creates `hdctl-kuma`
    (192.168.9.7:3001) and regenerates the binding; commit both files.
 
+### Gitea: Gitea's Actions API
+
+The Actions page shows Gitea Actions next to GitHub's: recent runs and
+workflow dispatch for every repository on the Gitea instance (today,
+`mike12806/hdc`). hdctl reads Gitea's own API at `192.168.9.3:3000` through
+the `GITEA` VPC Service it shares with gh_hdc's ci-logs Worker, not through
+`git.mfaherty.net`. Links on the page point at `https://git.mfaherty.net`.
+
+1. **A token.** In Gitea, *Settings › Applications › Generate New Token*, as
+   an admin so it sees every repository, with *repository: read and write*
+   (write is for dispatch). Store it:
+   ```bash
+   vault kv put kv/github/hdctl/gitea GITEA_TOKEN=…
+   ```
+
 ## Deploy pipeline
 
 ```mermaid
@@ -126,7 +141,7 @@ flowchart LR
   aud -->|yes| vault["vault-secrets<br/>GitHub OIDC → Tailscale tag:ci-vault<br/>→ Vault role hdctl-deploy"]
   vault --> d1["resolve / create hdctl-db + hdctl-cache<br/>apply migrations"]
   d1 --> dep["wrangler deploy --var BUILD_ID:sha<br/>(Worker + assets built with the same id)"]
-  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN · UNIFI_API_KEY · KUMA_TOKEN"]
+  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN · UNIFI_API_KEY · KUMA_TOKEN · GITEA_TOKEN"]
 ```
 
 The Vault role `hdctl-deploy` reads `kv/github/hdctl/*`, `kv/ci/proxmox` and
