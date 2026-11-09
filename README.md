@@ -1,64 +1,80 @@
 # hdctl
 
-**The control plane for the HDC (home data center).** One page that shows
-whether everything in the lab is up, and lets you act on it: sync Argo CD
-apps, start or reboot Proxmox guests, restart UniFi devices and power-cycle
-PoE ports, and run GitHub Actions workflows. Every action lands in an audit
-log.
+**A control plane for a home lab, running entirely on Cloudflare.** One page
+shows whether everything in the lab is up and lets you act on it: sync Argo CD
+apps, start or reboot Proxmox guests, restart UniFi devices and power-cycle PoE
+ports, and run GitHub Actions workflows. Every action lands in an audit log.
 
-It runs entirely on Cloudflare: a single Worker serves the React app and its
-API, and Cloudflare Access gates it. **Everything a page shows about the lab
-is fetched live from its source on that request**, through that system's own
-API: the targets themselves, Argo CD, Proxmox, the UDM, GitHub. D1 keeps only what no backend can give back (check
-history and the audit log), and KV is a cache that can't serve stale data (see
-[Where the data comes from](#where-the-data-comes-from)). The Worker reaches the LAN privately over Workers VPC through the existing
-`kubernetes` Cloudflare Tunnel, with **no inbound path into the homelab** and
-**no dependency on the cluster gateway or internal DNS** for anything that
-isn't itself in the cluster.
+A single Cloudflare Worker serves the React app and its API, Cloudflare Access
+gates it, and the Worker reaches the LAN over [Workers VPC][workers-vpc]
+through an outbound-only Cloudflare Tunnel. There is no inbound path into the
+lab.
 
 <p>
   <img src="docs/status.jpg" alt="Status page: live as of 8:30 PM, 27 endpoints up, grouped by Proxmox hosts and Vault" width="49%">
   <img src="docs/proxmox.jpg" alt="Proxmox page: per-host CPU and RAM meters and a guest table with reboot and shut down buttons" width="49%">
 </p>
 
-| Panel | What it shows | What it can do |
+| Page | What it shows | What it can do |
 |---|---|---|
-| **Status** | 29 endpoints probed live on every refresh: state, latency, HTTP code; plus a 2-hour history strip and 24-hour uptime from checks recorded every 2 minutes. Vault nodes report active / standby / sealed | Refresh |
-| **Metrics** | From Prometheus and Alertmanager, live: firing alerts; workloads that need attention and containers restarted in the last hour; CPU, RAM, root disk, load and uptime for every machine with a node exporter (k3s nodes, Proxmox, PBS, PDM); the fullest volumes; each Pi-hole's queries and blocking; scrape targets that are down | Read only |
-| **Argo CD** | Every Application's health, sync, and last operation | Refresh (normal or hard), Sync (never prunes) |
-| **Proxmox** | All 7 standalone hosts: node CPU/RAM/uptime and every VM and CT | Start, shut down, reboot (ACPI; no hard stop) |
-| **UniFi** | From the UDM's own Network API, live: WAN throughput, availability and ISP, internet latency, the last speed test, gateway CPU/RAM; every adopted gateway, switch and access point with its state, firmware (and any upgrade), clients and PoE ports; every connected client and where it connects | Restart a device, flash its LED, power-cycle a PoE port, reconnect a Wi-Fi client, run a speed test |
-| **Actions** | Recent runs across `gh_hdc` and `public-jobs`, and every active workflow | Run any `workflow_dispatch` workflow, with a form built from its own inputs |
+| **Status** | Every endpoint probed live: state, latency, HTTP code; a 2-hour history strip and 24-hour uptime from checks recorded every 2 minutes. Vault nodes report active / standby / sealed | Refresh |
+| **Metrics** | From Prometheus and Alertmanager: firing alerts, unhealthy workloads, per-machine CPU/RAM/disk/load, the fullest volumes, Pi-hole stats, scrape targets that are down | Read only |
+| **Argo CD** | Every Application's health, sync state and last operation | Refresh, sync (never prunes) |
+| **Proxmox** | Each host's CPU/RAM/uptime and every VM and container | Start, shut down, reboot |
+| **UniFi** | From the UniFi gateway's own Network API: WAN health, latency and speed test; every gateway, switch and access point with firmware, clients and PoE ports; every connected client | Restart a device, flash its LED, power-cycle a PoE port, reconnect a Wi-Fi client, run a speed test |
+| **Actions** | Recent GitHub Actions runs and every active workflow | Run any `workflow_dispatch` workflow, with a form built from its inputs |
 | **Audit** | Every action above: who, what, when, outcome | Read only |
 
----
+> hdctl is built for one specific home lab, and its config (hostnames, IPs,
+> repositories) is that lab's. It's published as a working reference for this
+> kind of setup rather than a turnkey product, but it's structured so you can
+> fork it and point it at your own systems.
+
+## Design principles
+
+- **Data comes from each system's own API, live.** The Proxmox page asks each
+  Proxmox host, the UniFi page asks the gateway, the Argo page asks Argo CD.
+  Never an exporter or another tool's copy of the data. Prometheus is the
+  source only for what it is the system of record for: alerts and metrics.
+- **Nothing shown is stale.** If a source fails, that section shows its error
+  and no data; there is no fallback to a cached copy. The one cache (GitHub
+  responses in KV) is used only when GitHub answers `304 Not Modified` to its
+  ETag, i.e. when GitHub has just confirmed it's current.
+- **Every target is pinned.** Each LAN endpoint is its own Workers VPC Service
+  locked to one `host:port`, so even a compromised Worker can reach those
+  endpoints and nothing else. Off-cluster targets are pinned by IP and don't
+  depend on internal DNS.
+- **TLS is always verified.** Every HTTPS hop uses `verify_full`. A device with
+  only a self-signed certificate gets one Workers VPC trusts (e.g. Cloudflare
+  Origin CA) instead of turning verification off.
+- **Actions are narrow and audited.** Each integration exposes a small set of
+  validated operations (no deletes, no config changes, no prune), and every
+  action is written to the audit log before it runs and finished after.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  you(["You<br/>browser / phone"])
+  you(["Browser / phone"])
 
   subgraph cf["Cloudflare"]
-    access["Access app <b>hdctl</b><br/>owner only, 24h session"]
-    subgraph worker["Worker <b>hdctl</b> (hdctl.mfaherty.net)"]
+    access["Access<br/>owner only"]
+    subgraph worker["Worker"]
       api["Hono API<br/>JWT check · CSRF guard"]
       assets["React SPA<br/>static assets"]
-      cron["Cron */2 min<br/>health checks"]
+      cron["Cron every 2 min<br/>health checks"]
     end
-    d1[("D1 <b>hdctl-db</b><br/>history + audit only")]
-    kv[("KV <b>hdctl-cache</b><br/>ETag-validated copies")]
-    vpc["Workers VPC<br/>29 pinned VPC Services"]
+    d1[("D1<br/>check history + audit log")]
+    kv[("KV<br/>ETag-validated GitHub copies")]
+    vpc["Workers VPC<br/>one pinned service per target"]
   end
 
   gh["api.github.com"]
 
-  subgraph lab["HDC (LAN)"]
-    subgraph k3s["k3s cluster"]
-      cfd["cloudflared<br/>tunnel <i>kubernetes</i>"]
-      capps["Argo CD · Harbor · Immich<br/>Authentik · Paperless · Emby<br/>Open WebUI · LiteLLM<br/>Prometheus · Alertmanager"]
-    end
-    hosts["pve…pve7 :8006<br/>vault-1…5 :8200<br/>PBS · PDM · TrueNAS ×2<br/>UDM · Home Assistant · Gitea"]
+  subgraph lab["Home lab (LAN)"]
+    cfd["cloudflared<br/>(in k3s)"]
+    capps["In-cluster apps<br/>Argo CD · Prometheus · …"]
+    hosts["Proxmox · Vault · UniFi gateway<br/>NAS · backup servers · …"]
   end
 
   you -->|HTTPS| access --> api
@@ -70,377 +86,37 @@ flowchart LR
   cron --> vpc
   vpc -. outbound-only tunnel .-> cfd
   cfd -->|by IP, TLS verify_full| hosts
-  cfd -->|svc.cluster.local| capps
-  api -->|Actions API| gh
+  cfd --> capps
+  api --> gh
 ```
 
-**One Worker, not Pages + a Worker.** The SPA is served as Workers static
-assets with `run_worker_first = true`, so *every* request, assets included,
-goes through the Worker's Access check. `workers_dev` and `preview_urls` are
-off, so the only way in is `hdctl.mfaherty.net`, behind the Access app.
+- **One Worker, not Pages plus a Worker.** The SPA is served as Workers static
+  assets with `run_worker_first = true`, so every request, assets included,
+  goes through the Worker's own Access JWT check. `workers.dev` and preview
+  URLs are off, so the custom domain behind Access is the only way in.
+- **D1 holds only what no backend can give back:** health-check history and
+  the audit log.
+- **What depends on the cluster:** the tunnel's connector runs in k3s. If the
+  cluster is down, hdctl still loads and shows everything as down. A second
+  connector on a non-cluster host would keep Proxmox control during an outage.
+- **Cost:** it fits comfortably within the Workers Paid plan's included usage.
+  Workers bill CPU time, not wall time, so slow backends cost nothing.
 
-**Pinned VPC Services, not a VPC Network binding.** Each target is its own VPC
-Service locked to one `host:port`. Even a compromised Worker could reach those
-29 endpoints and nothing else on the LAN. Off-cluster targets are pinned **by
-IP**, so they need neither the gateway nor Pi-hole/CoreDNS. HTTPS hops use
-`verify_full`: cloudflared connects to the IP and checks the certificate
-against the name in the URL (the SNI), e.g. `pve4.mfaherty.net` at
-`192.168.1.12`. Nothing turns certificate verification off. The UDM's own
-certificate is a self-signed `unifi.local` one that Workers VPC can't verify,
-so the UDM carries a Cloudflare Origin CA certificate for `unifi.mfaherty.net`
-(Workers VPC trusts Origin CA), and is reached at `192.168.1.1:443` as that
-name (see [UniFi](#unifi-the-udms-api)).
+More detail (request path, health-check pipeline, data model, browser caching,
+cost breakdown) is in [docs/internals.md](docs/internals.md).
 
-**What still depends on the cluster.** The tunnel's connectors are the
-in-cluster `cloudflared` Deployment. If k3s is down, hdctl still loads and
-shows everything as down. To keep Proxmox control during a cluster outage,
-add a second connector for the `kubernetes` tunnel on a non-k3s host;
-the VPC Services don't change.
-
-### Why D1, and is the latency OK?
-
-Yes. The Worker talks to D1 through a binding, not the REST API, and the
-database's primary is in Eastern North America (`--location enam`), next to the
-tunnel's BOS/EWR connectors. The Status page's history is **one** D1 round
-trip (`DB.batch()`), run in parallel with the live probes, and a cron run
-writes all 54 rows in one batch. Measured through `wrangler dev`, probing all
-27 targets live took about 0.5 s, nearly all of it the tunnel hop to the LAN.
-
-### What it costs
-
-Nothing beyond the Workers Paid plan the account already has. Every meter
-stays a small fraction of what that plan includes:
-
-- **Slow backends cost nothing.** Workers bill CPU time, not wall time: waiting
-  on a slow target, the tunnel or GitHub isn't billed, and neither are
-  subrequests. A slow target only makes its request slower: a probe gives up
-  after 8 s, an API call after 10 s.
-- **Static assets are free**, Workers VPC is free during its open beta, and
-  requests Access refuses never reach the Worker.
-
-| Meter | hdctl's use | Included per month |
-|---|---|---|
-| Worker requests | cron 21,600 a month; a tab in use adds 2,880 a day (every 30 s), and nothing while hidden or after 15 minutes without input | 10 million |
-| CPU time | a few ms a request (JWT check, JSON) | 30 million ms |
-| D1 rows written | about 200 a cron run (insert + its two indexes, upsert, prune): ~4.3 million a month | 50 million |
-| D1 rows read | about 21,000 a Status refresh (24 h of checks for uptime, 2 h for history): ~1.8 billion a month with a Status tab open around the clock | 25 billion |
-| KV | GitHub panel only: a read per call, a write only when GitHub's answer changed | 10 million reads, 1 million writes |
-
-It would not fit the Workers Free plan: D1 there stops at 5 million rows read
-and 100,000 written a day, and the cron alone writes about 144,000.
-
----
-
-## Where the data comes from
-
-**Always the system's own API.** Each panel asks the system it describes,
-directly: never an exporter, a metrics pipeline or another tool's copy of the
-data. The network comes from the UDM's Network API, not unpoller; Prometheus
-and Alertmanager are the source only for alerts and for what exists only as
-metrics. (This rule is also in `CLAUDE.md`.)
-
-| Shown on | Source, on every request | Cached? | Kept in D1 |
-|---|---|---|---|
-| Status: state, latency, HTTP code | Live probe of each target through its VPC Service | No | — |
-| Status: duration, history strip, 24 h uptime | D1 (recorded by the cron every 2 min) | — | `checks`, `target_state` |
-| Argo CD | Argo CD API | **No**: it sends no validators, so a copy could never be confirmed | — |
-| Proxmox | Each host's API (`/cluster/resources`) | **No**, same reason | — |
-| UniFi | The UDM's Network API (`/proxy/network/api/s/default/stat/health`, `stat/device`, `stat/sta`), with a UniFi API key | **No**, same reason. Each of the three shows its own error if it fails | — |
-| Metrics | Prometheus (`/api/v1/query`, one PromQL query per section) and Alertmanager (`/api/v2/alerts`), through their own VPC Services | **No**, same reason. A section whose query fails shows its error and no data; the rest still render | — |
-| GitHub runs, workflows, dispatch inputs | GitHub API | **KV, revalidated on every read** | — |
-| Audit | D1 | — | `audit_log` |
-
-**The KV cache is never a fallback.** Every GitHub read still goes to GitHub.
-The cached copy's ETag rides along as `If-None-Match`; the copy is used only if
-GitHub answers `304 Not Modified`, i.e. GitHub itself has just confirmed it is
-current. If GitHub (or anything else) is unreachable or answers with an
-error, that error is what you see, never the last good copy. So a backend
-that is down always *shows* as down.
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant W as Worker
-  participant K as KV hdctl-cache
-  participant G as GitHub API
-
-  W->>K: get(gh:v1:…/actions/runs)
-  K-->>W: copy with ETag "e1" (or nothing)
-  W->>G: GET …/actions/runs + If-None-Match "e1"
-  alt unchanged
-    G-->>W: 304 Not Modified (free: not counted against the rate limit)
-    Note over W: GitHub just confirmed the copy, so use it
-  else changed
-    G-->>W: 200 + new body, ETag "e2"
-    W-)K: put(new body, "e2") after responding
-  else unreachable or error
-    G--xW: timeout / 4xx / 5xx
-    Note over W: the error goes to the page, the copy is never used
-  end
-```
-
-KV is eventually consistent (a write can take up to a minute to reach every
-location). That can't make anything stale here: an older copy carries an older
-ETag, so GitHub answers `200` with the current body. The worst case is a
-refetch. Measured: a second load of the Actions page cost **0** rate-limit
-units.
-
-### In the browser
-
-| What | How it stays current |
-|---|---|
-| API responses | `Cache-Control: no-store`, and every fetch uses `cache: "no-store"` |
-| `index.html`, favicon | `no-cache`: revalidated on every load, so a deploy is picked up immediately |
-| `/assets/*` (JS, CSS) | Content-hashed names, `immutable` for a year: changed content gets a new name, so an old file can't be served for a new one |
-| An open tab after a deploy | Every response carries `X-Hdctl-Build` (the git SHA). A tab running an older bundle reloads itself, or asks first if a confirmation dialog is open |
-| Back/forward navigation | A page restored from the browser's back/forward cache reloads instead of showing what it showed back then |
-| Data on screen | Every page refreshes itself (every 30 s; Actions runs every 20 s) and says so: **live · as of** the time its data was fetched **· auto-refresh 30 s**. A failed refresh clears the panel and shows the error; data older than two poll intervals (sleeping laptop, hidden tab) is withheld until a fresh answer arrives |
-| A page left open | Polling stops while the tab is hidden, and after 15 minutes without input (the header says **auto-refresh paused while idle**), so a forgotten tab sends nothing to the Worker or the systems behind it. The next key press, click or scroll, or coming back to the tab, loads fresh data at once |
-| Service worker | None, so there's no offline cache
-
----
-
-## Request path
-
-```mermaid
-sequenceDiagram
-  autonumber
-  actor U as You
-  participant A as Cloudflare Access
-  participant W as Worker (hdctl)
-  participant K as Access certs (JWKS)
-  participant V as VPC Service → tunnel
-  participant T as Target (e.g. pve4)
-  participant D as D1
-
-  U->>A: GET hdctl.mfaherty.net/proxmox
-  A-->>U: not signed in? → IdP login (owner only)
-  A->>W: request + Cf-Access-Jwt-Assertion
-  W->>K: signing keys (cached per isolate)
-  W->>W: verify RS256, aud, iss, exp, email ∈ ALLOWED_EMAILS
-  Note over W: POSTs also need the X-Hdctl header and a same-origin Origin (CSRF)
-  U->>W: POST /api/proxmox/pve4/pve/qemu/101/reboot
-  W->>D: audit_log row (status = started)
-  W->>V: POST https://pve4.mfaherty.net/api2/json/…/status/reboot
-  V->>T: 192.168.1.12:8006 (TLS verify_full)
-  T-->>W: UPID task id
-  W->>D: audit_log row → ok (or error + message)
-  W-->>U: { upid }
-```
-
-## Health checks
-
-The same probe runs in two places: on every Status request (live, writes
-nothing) and from the cron every two minutes (recorded, for history).
-
-```mermaid
-flowchart TD
-  page["Status page request"] --> fan
-  cron["Cron every 2 min"] --> fan["Probe all 29 targets in parallel<br/>GET check.path through each VPC Service<br/>8 s timeout"]
-  fan --> cls{"classify()"}
-  cls -->|expected code, under 3 s| up["up"]
-  cls -->|slow, or unexpected 4xx| deg["degraded"]
-  cls -->|5xx, refused, timeout| down["down"]
-  cls -->|Vault: 200 active · 429 standby · 503 sealed| vault["Vault-aware state"]
-  up & deg & down & vault --> who{"who asked?"}
-  who -->|page| merge["Live state + D1 history<br/>(duration, strip, 24 h uptime)"]
-  who -->|cron| batch["One D1 batch:<br/>INSERT checks ×29<br/>UPSERT target_state ×29 (keeps 'since' unless state changed)"]
-  batch --> prune["waitUntil: delete checks older than 7 days"]
-```
-
-A full day is about 19.5k check rows. Seven days of history is roughly 136k
-rows, well inside D1's limits.
-
-## Data model
-
-```mermaid
-erDiagram
-  target_state ||--o{ checks : "latest of"
-  target_state {
-    text target_id PK "id from infra/targets.json"
-    text state "up | degraded | down"
-    int since "epoch ms the state began"
-    int checked_at
-    int code
-    int latency_ms
-    text detail
-  }
-  checks {
-    text target_id
-    int at "epoch ms, kept 7 days"
-    text state
-    int code
-    int latency_ms
-    text detail
-  }
-  audit_log {
-    int id PK
-    int at
-    text actor "email from the Access JWT"
-    text action "argo.sync, proxmox.reboot, github.dispatch, ..."
-    text target "argo/app, pve4/pve/qemu/101, repo/file.yml"
-    text params "JSON"
-    text status "started | ok | error"
-    text result
-    int finished_at
-  }
-```
-
----
-
-## Security model
+## Security
 
 | Layer | What it does |
 |---|---|
-| Cloudflare Access app `hdctl` | Owner-only policy, 24 h sessions (shorter than Tasks' 720 h because this app can act on infrastructure). Managed in gh_hdc `terraform/cloudflare-access/apps.tf` |
-| No bypass routes | `workers_dev = false`, `preview_urls = false`, custom domain only |
-| Worker verifies the JWT itself | RS256 against Access's JWKS, `aud` = the app's AUD, `iss` = the team domain, expiry, and email ∈ `ALLOWED_EMAILS`. Assets included (`run_worker_first`) |
-| CSRF | State-changing calls need `X-Hdctl: 1` and a same-origin `Origin`; a cross-site page can't send that header without a CORS preflight, which is never approved |
-| Pinned VPC Services | 29 `host:port` pins; no VPC Network binding; TLS `verify_full` everywhere it's HTTPS |
-| Narrow actions | Argo: account `hdctl` with RBAC `applications, get` + `sync` only; sync never prunes. Proxmox: start / shutdown / reboot only, validated host + node + type + vmid. GitHub: only repos in `GITHUB_REPOS`, only workflows with `workflow_dispatch`, inputs checked against the workflow's own definition. UniFi: restart, locate, PoE power-cycle, Wi-Fi reconnect and speed test only (no adopt, forget, block or config changes); the device must be one this site has adopted, a port must be supplying PoE, a client must be connected over Wi-Fi, all as the UDM reports them just before the command |
-| Audit | Every action is written to D1 *before* it runs and finished after |
-| Secrets | Only in Vault; synced to Worker secrets by the deploy workflow; never in git |
+| Cloudflare Access | Owner-only policy with 24 h sessions |
+| Worker verifies the JWT itself | RS256 against Access's JWKS, plus `aud`, `iss`, expiry and an email allowlist, on every request including assets |
+| CSRF | State-changing calls need an `X-Hdctl` header and a same-origin `Origin` |
+| Pinned VPC Services | One `host:port` per target, no VPC Network binding, TLS `verify_full` |
+| Narrow actions | Argo: sync without prune, via an account limited to get + sync. Proxmox: start / shutdown / reboot only. GitHub: allowlisted repos, `workflow_dispatch` only, inputs checked against the workflow's definition. UniFi: restart, locate, PoE cycle, Wi-Fi reconnect and speed test only, each checked against what the gateway reports first |
+| Audit | Every action recorded before it runs |
+| Secrets | Kept in Vault and synced to Worker secrets at deploy; never in git |
 | Headers | CSP `default-src 'self'`, `frame-ancestors 'none'`, `nosniff`, `no-referrer` |
-
-**Known gaps worth closing** (both work today, but grant more than hdctl needs):
-
-- **Proxmox tokens are `root@pam!gha`** (`kv/ci/proxmox`, shared with the
-  Terraform workflow). Create a `hdctl@pve` user per host with a token that has
-  `PVEAuditor` + `VM.PowerMgmt` only, store them at `kv/github/hdctl/proxmox`,
-  and point the deploy workflow there.
-- **The GitHub token is the classic `repo`-scoped `GH_HDC_PAT`.** A
-  fine-grained token limited to `gh_hdc` + `public-jobs` with *Actions: read
-  and write* and *Contents: read* is all hdctl uses.
-
----
-
-## One-time setup
-
-```mermaid
-flowchart LR
-  a["1 · Merge the gh_hdc PR<br/>Access app · Vault role · Argo account"] --> b["2 · Copy the app's AUD<br/>into worker/wrangler.toml"]
-  a --> c["3 · Cloudflare API token<br/>→ kv/github/hdctl/cloudflare"]
-  a --> d["4 · Argo CD token<br/>→ kv/github/hdctl/argo"]
-  b & c & d --> e["5 · Merge to main<br/>→ Deploy workflow"]
-  e --> f["6 · Commit the D1 and KV ids<br/>it prints"]
-```
-
-1. **Merge the gh_hdc PR.** It adds the Access app `hdctl`
-   (`terraform/cloudflare-access/apps.tf`), the Vault policy and GitHub role
-   `hdctl-deploy` (`vault/`), and the Argo CD local account `hdctl` with its
-   RBAC (`argo/helm/values.yaml`). Their workflows apply each part on merge.
-2. **AUD tag.** The Cloudflare Access workflow prints each app's AUD in its
-   job summary. Put hdctl's into `CF_ACCESS_AUD` in `worker/wrangler.toml`
-   (the deploy refuses to run while it's the placeholder).
-3. **Cloudflare API token** (account-owned) with:
-   - Account › **Workers Scripts** › Edit (the very first deploy creates the
-     Worker, which needs Workers Admin)
-   - Account › **D1** › Edit
-   - Account › **Workers KV Storage** › Edit
-   - Account › **Connectivity Directory** › Bind
-   - Zone `mfaherty.net` › **Workers Routes** › Edit (for the custom domain)
-
-   ```bash
-   vault kv put kv/github/hdctl/cloudflare CLOUDFLARE_API_TOKEN=…
-   ```
-4. **Argo CD key** for the `hdctl` account, once `deploy-argo-cd` has
-   applied the values. In the Argo UI open **Settings › Accounts › hdctl**
-   (https://argo.mfaherty.net/settings/accounts/hdctl), leave **Expires In**
-   empty (the key then never expires) and click **Generate New**. Store it:
-   ```bash
-   vault kv put kv/github/hdctl/argo ARGOCD_TOKEN=…
-   ```
-   The deploy reads both keys in one Vault step, so it fails until this one
-   exists too. To revoke the key, delete it on the same Argo page.
-5. **Merge to `main`.** `deploy.yml` builds, creates `hdctl-db` and the KV
-   namespace `hdctl-cache` if they don't exist, applies migrations, deploys,
-   and syncs the secrets.
-6. **Commit the two ids** the deploy prints as notices: `database_id = "…"`
-   under `database_name`, and `id = "…"` under `binding = "CACHE"`, in
-   `worker/wrangler.toml`.
-
-### UniFi: the UDM's API
-
-The UniFi page talks to the UDM's Network application directly. Two things
-are needed once, in this order:
-
-1. **A certificate Workers VPC can verify.** Issue a Cloudflare Origin CA
-   certificate for `unifi.mfaherty.net` (SSL/TLS › Origin Server, 15 years)
-   and install it as the UDM's UniFi OS certificate. Store the pair in Vault
-   so it can be reinstalled after a firmware update. Then update gh_hdc's
-   `kubernetes/nginx-gateway-fabric/policies/unifi-backend-tls.yaml` in the
-   same change: its `BackendTLSPolicy` validates `unifi.local` against the old
-   self-signed CA, so the browser route at `unifi.mfaherty.net` breaks until
-   it validates `unifi.mfaherty.net` against the Origin CA root.
-2. **An API key.** In UniFi OS, add a local admin `hdctl` with only the
-   Network application at *Site Admin* (the restart, PoE and reconnect
-   commands need more than read-only), create an API key for it
-   (*Control Plane › Integrations*), and store it:
-   ```bash
-   vault kv put kv/github/hdctl/unifi UNIFI_API_KEY=…
-   ```
-   The deploy reads it in the same Vault step as the others, so it fails
-   until this exists.
-3. **The VPC Service.** With a Connectivity Directory Admin token,
-   `npm run vpc:sync` creates `hdctl-unifi-https` (192.168.1.1:443,
-   `verify_full`) and regenerates the binding; commit both files. CI's
-   `vpc:check` fails until then. The old `hdctl-unifi` service (port 80) can
-   be deleted afterwards.
-
-## Deploy pipeline
-
-```mermaid
-flowchart LR
-  pr["Pull request"] --> ci["ci.yml: Server Tests · Client Tests · Build<br/>(the checks the main ruleset requires)<br/>codeql.yml: code scanning"]
-  main["Push to main"] --> test["deploy.yml: test"]
-  test --> aud{"AUD set?"}
-  aud -->|no| stop(["fail: set CF_ACCESS_AUD"])
-  aud -->|yes| vault["vault-secrets<br/>GitHub OIDC → Tailscale tag:ci-vault<br/>→ Vault role hdctl-deploy"]
-  vault --> d1["resolve / create hdctl-db + hdctl-cache<br/>apply migrations"]
-  d1 --> dep["wrangler deploy --var BUILD_ID:sha<br/>(Worker + assets built with the same id)"]
-  dep --> sec["wrangler secret bulk<br/>ARGOCD_TOKEN · PVE_TOKENS · GITHUB_TOKEN · UNIFI_API_KEY"]
-```
-
-The Vault role `hdctl-deploy` reads `kv/github/hdctl/*`, `kv/ci/proxmox` and
-`kv/ci/github`, and only from `deploy.yml` on `main`. Rotating any credential
-means updating Vault and re-running the workflow.
-
----
-
-## Targets
-
-`infra/targets.json` is the single list of everything hdctl can reach. Each
-entry gives the address cloudflared connects to (`ipv4` or in-cluster
-`hostname`), the `host` used for Host/SNI, the health `check`, and its VPC
-Service.
-
-| Group | Targets | Reached at |
-|---|---|---|
-| Proxmox hosts | pve, pve2 … pve7 | `192.168.1.x:8006`, TLS for `pveN.mfaherty.net` |
-| Vault | vault-1 … vault-5 | `192.168.1.x:8200`, TLS for `vault-N.mfaherty.net` |
-| Backup | PBS, PDM | `.37:8007`, `.89:8443`, Let's Encrypt certificates |
-| Storage | truenas1, truenas2 | `.108:443`, `.85:443` |
-| Network | UDM | `192.168.1.1:443`, TLS for `unifi.mfaherty.net` (Cloudflare Origin CA certificate) |
-| Apps (off-cluster) | Home Assistant, Gitea | `192.168.5.169:8123`, `192.168.9.3:3000` |
-| Cluster apps | Argo CD, Harbor, Immich, Authentik, Paperless, Emby, Open WebUI, LiteLLM | `*.svc.cluster.local` |
-
-Argo CD's and Gitea's VPC Services are shared with gh_hdc's `argo-webhook` and
-`ci-logs` Workers.
-
-**Adding a target:** add a line to `infra/targets.json`, then, with a token
-that has Connectivity Directory **Admin** (gh_hdc's
-`GH_HDC_CF_WORKER_CONNECTIVITY_ADMIN`):
-
-```bash
-npm run vpc:sync
-```
-
-It creates the VPC Service (matching by name first, so re-runs adopt rather
-than duplicate), writes its id back into `targets.json`, and regenerates the
-`[[vpc_services]]` block in `worker/wrangler.toml`. Commit both. CI's
-`vpc:check` fails if the two ever disagree.
-
----
 
 ## Repository layout
 
@@ -449,7 +125,7 @@ infra/
   targets.json        every LAN endpoint + its VPC Service (source of truth)
   vpc-sync.mjs        creates missing VPC Services, regenerates wrangler bindings
 worker/
-  wrangler.toml       Worker config: custom domain, assets, cron, D1, VPC bindings
+  wrangler.toml       Worker config: domain, assets, cron, D1, KV, VPC bindings
   migrations/         D1 schema
   src/
     index.ts          routes, Access check, CSRF guard, cron entry
@@ -457,15 +133,36 @@ worker/
     health.ts         live probes, classification, recorded history
     cache.ts          KV cache that only serves origin-confirmed (304) copies
     audit.ts          audited() wrapper + audit log reads
-    targets.ts        target catalog + VPC fetch helper
-    integrations/     argo.ts · proxmox.ts · unifi.ts · github.ts · prometheus.ts
-  test/               vitest, see "Tests" below
+    integrations/     argo · proxmox · unifi · github · prometheus
+  test/               vitest against fake upstreams
 client/
   src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Actions · Audit
-  src/components/     pills, meters, confirm dialog
-  test/               vitest + jsdom: polling, the API wrapper, reload on deploy
-.github/workflows/    ci.yml (PRs) · codeql.yml (PRs, main, weekly) · deploy.yml (main)
+  test/               vitest + jsdom
+docs/                 internals.md · operations.md
 ```
+
+## Running your own
+
+To adapt hdctl to another lab:
+
+1. **Targets.** Replace `infra/targets.json` with your own endpoints (address,
+   TLS hostname, health check). With a Cloudflare token that has Connectivity
+   Directory Admin, `npm run vpc:sync` creates a Workers VPC Service for each
+   and regenerates the bindings in `worker/wrangler.toml`. `npm run vpc:check`
+   (run in CI) fails if the two disagree.
+2. **Worker config.** In `worker/wrangler.toml`, set your domain, your Access
+   application's AUD (`CF_ACCESS_AUD`), team domain (`CF_ACCESS_TEAM_DOMAIN`) and `ALLOWED_EMAILS`, and
+   the repositories in `GITHUB_REPOS`.
+3. **Secrets.** Each integration reads its own credential:
+   `ARGOCD_TOKEN`, `PVE_TOKENS` (JSON map of host to Proxmox API token),
+   `GITHUB_TOKEN`, `UNIFI_API_KEY`. A page whose secret is missing says
+   "Not set up yet" rather than failing.
+4. **Deploy** with `wrangler deploy`, after creating the D1 database and KV
+   namespace and applying migrations. `.github/workflows/deploy.yml` shows how
+   this repo does it from CI, with secrets pulled from Vault.
+
+How this particular lab is set up and operated is in
+[docs/operations.md](docs/operations.md).
 
 ## Local development
 
@@ -479,70 +176,39 @@ Put dev secrets in `worker/.dev.vars` (git-ignored):
 
 ```dotenv
 DEV_MODE=true
-PVE_TOKENS='{"pve":"USER@REALM!TOKENID=SECRET", "pve2": "…"}'
+PVE_TOKENS='{"pve":"USER@REALM!TOKENID=SECRET"}'
 GITHUB_TOKEN=…
 ARGOCD_TOKEN=…
 UNIFI_API_KEY=…
 ```
 
-Then run with a token that can bind VPC Services (the VPC bindings are
+Then run with a Cloudflare token that can bind VPC Services (the bindings are
 `remote = true`, so local dev reaches the real LAN through the tunnel):
 
 ```bash
 CLOUDFLARE_API_TOKEN=… npm run dev -w worker   # http://localhost:8787
-npm run dev:client                             # optional: Vite hot reload on :5173, /api → :8787
+npm run dev:client                             # optional: Vite hot reload on :5173
 ```
 
-`DEV_MODE` skips the Access check **only** for requests to `localhost`; the
-dev script passes `--local-upstream localhost` so that holds under `wrangler
-dev`. In production the hostname is never `localhost`, so the flag does nothing
-there even if it were set.
+`DEV_MODE` skips the Access check only for requests to `localhost`, so it does
+nothing in production even if set.
 
-### Tests
+## Tests
 
 ```bash
-npm test          # worker and client, about 10 s, no network or credentials
+npm test            # worker and client, no network or credentials
+npm run typecheck
 ```
 
-The worker tests run the real Worker (routes, Access check, CSRF guard,
-headers, error mapping) in-process against SQLite with the real migrations
-(D1 is SQLite), one fake VPC binding per target that records every call, and a
-fake api.github.com. They pin down what matters most:
+The worker tests run the real Worker in-process against SQLite with the real
+migrations, with a fake upstream per target that records every call. They pin
+down that nothing is served without a valid Access token, that state-changing
+calls without the CSRF header are refused before anything is sent, that every
+page reads its source live and shows an error rather than old data when it
+fails, that the KV cache answers only after GitHub's 304, and that every
+action is validated, narrow and audited. The client tests cover polling (a
+failed refresh clears the data, stale data is withheld, polling pauses after
+15 minutes without input and resumes with a fresh load) and reloading after a
+deploy.
 
-- nothing is served without a valid Access token, assets included, and a
-  placeholder AUD lets nothing in;
-- a state-changing call without the `X-Hdctl` header, or from another origin,
-  is refused before anything is sent or recorded;
-- API responses are `no-store`, the app shell `no-cache`, hashed assets
-  `immutable`, and every response names the build;
-- the Status page shows each target as probed for that request, even when the
-  last recorded check says otherwise, and the cron keeps `since` until a
-  state changes;
-- an Argo sync never prunes, a guest action reaches only its own host with its
-  own token, a dispatch only sends known inputs, and each is audited;
-- KV answers only after GitHub's 304; an outage is an error, never the cached copy;
-- the Metrics page asks Prometheus and Alertmanager on every request, one query
-  per section; a section that fails shows its error, never older data, and the
-  parsers name machines, workloads and alerts correctly;
-- the UniFi page asks only the UDM, with its API key, on every request; a
-  failed call shows as that section's error; the UDM target stays HTTPS with
-  `verify_full`; and every UniFi action is checked against what the UDM
-  reports first (adopted device, PoE port, Wi-Fi client), sends exactly one
-  command, and is audited.
-
-The client tests cover the polling hook (a failed refresh clears the data, data
-older than two intervals is withheld, a late answer can't replace a newer one,
-no polling while hidden), `cache: "no-store"` and the build check on every
-call, and the reload on deploy and on a back/forward-cache restore.
-
-## Operations
-
-| Task | How |
-|---|---|
-| Logs | Workers Logs in the dashboard; also exported over OTLP to Redpanda → Elasticsearch (`redpanda-logs` destination). The cron logs one line per run listing anything not up |
-| Query D1 | `npx wrangler d1 execute hdctl-db --remote --command "SELECT * FROM target_state"` |
-| Empty the cache | Safe at any time (it only saves transfers): `npx wrangler kv key list --binding CACHE --remote`, then delete keys, or recreate the namespace |
-| Rotate a credential | Update it in Vault, re-run **Deploy** |
-| A panel says "Not set up yet" | Its secret is empty: the message names which one and where it lives in Vault |
-| Everything shows down at once | The tunnel: check `kubectl -n default get pods -l app=cloudflared`. If the cluster itself is down, that's expected (see "What still depends on the cluster") |
-| Session expired | API calls fail with "reload the page to sign in again"; Access sessions last 24 h |
+[workers-vpc]: https://developers.cloudflare.com/workers-vpc/
