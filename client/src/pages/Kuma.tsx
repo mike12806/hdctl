@@ -4,11 +4,11 @@ import { num } from "../format";
 import { usePoll } from "../hooks";
 import { AsOf, Empty, ErrorNote, Loading, Ok, PageHeader, Pill, Tile, type Tone } from "../components/ui";
 
-const TONE: Record<MonitorStatus, Tone> = { up: "good", down: "bad", pending: "warn", maintenance: "info", unknown: "muted" };
+export const MONITOR_TONE: Record<MonitorStatus, Tone> = { up: "good", down: "bad", pending: "warn", maintenance: "info", unknown: "muted" };
 /** A certificate this close to expiry is worth seeing before Kuma alerts on it. */
-const CERT_WARN_DAYS = 14;
+export const CERT_WARN_DAYS = 14;
 
-function certNote(m: KumaMonitor): { text: string; tone: Tone } | null {
+export function certNote(m: KumaMonitor): { text: string; tone: Tone } | null {
   if (m.certValid === false) return { text: "certificate invalid", tone: "bad" };
   if (m.certDaysRemaining === null) return null;
   const d = Math.floor(m.certDaysRemaining);
@@ -40,7 +40,7 @@ export function KumaPage() {
         title="Uptime"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} />
+            <AsOf at={fetchedAt} loading={loading} every={15_000} />
             {data ? ` · ${data.monitors.length} monitors, from Uptime Kuma` : ""}
           </>
         }
@@ -96,7 +96,7 @@ export function KumaPage() {
                       <div className="muted mono small">{[m.type, m.target].filter(Boolean).join(" · ")}</div>
                     </td>
                     <td>
-                      <Pill tone={TONE[m.status]}>{m.status}</Pill>
+                      <Pill tone={MONITOR_TONE[m.status]}>{m.status}</Pill>
                     </td>
                     <td data-label="response">{m.responseTimeMs !== null ? `${num(Math.round(m.responseTimeMs))} ms` : <span className="muted">–</span>}</td>
                     <td data-label={cert ? "certificate" : undefined}>{cert ? <span className={`small tone-${cert.tone}`}>{cert.text}</span> : <span className="muted">–</span>}</td>

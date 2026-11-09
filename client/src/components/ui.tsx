@@ -112,11 +112,14 @@ export function PageHeader({ title, subtitle, children }: { title: string; subti
 }
 
 /** "live · as of 20:14:03": when the data on screen was fetched from its source. */
-export function AsOf({ at, loading }: { at: number | null; loading?: boolean }) {
-  if (at === null) return <span className="asof muted">{loading ? "fetching live data…" : "no data"}</span>;
+export function AsOf({ at, loading, every }: { at: number | null; loading?: boolean; every?: number }) {
+  // Says the page refreshes itself, and how often, so nobody has to wonder.
+  const auto = every ? ` · auto-refresh every ${every >= 60_000 ? `${every / 60_000} min` : `${every / 1000} s`}` : "";
+  if (at === null) return <span className="asof muted">{loading ? "fetching live data…" : "no data"}{auto}</span>;
   return (
     <span className="asof" title={new Date(at).toString()}>
       <span className={`dot dot-good${loading ? " dot-pulse-soft" : ""}`} aria-hidden /> live · as of {new Date(at).toLocaleTimeString()}
+      {auto}
     </span>
   );
 }
