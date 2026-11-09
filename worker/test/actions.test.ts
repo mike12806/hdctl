@@ -112,9 +112,18 @@ jobs: {}
 `;
   const dispatchPath = "/api/github/workflows/mike12806/gh_hdc/terraform.yml/dispatch";
 
+  /** The token's repositories, as /user/repos lists them: the owner's, a collaborator's, an archived one. */
+  const REPOS = [
+    { full_name: "mike12806/public-jobs", owner: { login: "mike12806" }, archived: false },
+    { full_name: "mike12806/gh_hdc", owner: { login: "mike12806" }, archived: false },
+    { full_name: "someone/else", owner: { login: "someone" }, archived: false },
+    { full_name: "mike12806/old", owner: { login: "mike12806" }, archived: true },
+  ];
+
   /** A fake api.github.com with one dispatchable workflow. */
   const github = (req: Request) => {
     const path = new URL(req.url).pathname;
+    if (path === "/user/repos") return Response.json(REPOS);
     if (path === "/repos/mike12806/gh_hdc") return Response.json({ default_branch: "main" });
     if (path === "/repos/mike12806/gh_hdc/contents/.github/workflows/terraform.yml") return new Response(WORKFLOW);
     if (req.method === "POST" && path === "/repos/mike12806/gh_hdc/actions/workflows/terraform.yml/dispatches") return new Response(null, { status: 204 });
@@ -133,7 +142,8 @@ jobs: {}
   });
 
   it.each([
-    ["a repository outside GITHUB_REPOS", "/api/github/workflows/someone/else/deploy.yml/dispatch", {}],
+    ["another account's repository, even one the token can see", "/api/github/workflows/someone/else/deploy.yml/dispatch", {}],
+    ["an archived repository", "/api/github/workflows/mike12806/old/deploy.yml/dispatch", {}],
     ["an input the workflow doesn't have", dispatchPath, { inputs: { action: "plan", note: "x", extra: "1" } }],
     ["a value that isn't one of the choices", dispatchPath, { inputs: { action: "destroy", note: "x" } }],
     ["a missing required input", dispatchPath, { inputs: { action: "plan" } }],
@@ -141,6 +151,27 @@ jobs: {}
     const t = testEnv({ vars: { GITHUB_TOKEN: "gh-token" }, internet: github });
     expect((await action(t.env, path, body)).status).toBe(400);
     expect(dispatches(t)).toEqual([]);
+  });
+
+  it("shows every repository the owner has, live from GitHub: not other accounts', not archived ones", async () => {
+    const runsOf: string[] = [];
+    const t = testEnv({
+      vars: { GITHUB_TOKEN: "gh-token" },
+      internet: (req) => {
+        const path = new URL(req.url).pathname;
+        if (path === "/user/repos") return Response.json(REPOS);
+        const m = path.match(/^\/repos\/([^/]+\/[^/]+)\/actions\/workflows$/);
+        if (!m) return new Response("{}", { status: 404 });
+        runsOf.push(m[1]!);
+        // public-jobs has Actions turned off: GitHub answers 404, which means "no workflows".
+        if (m[1] === "mike12806/public-jobs") return new Response('{"message":"Not Found"}', { status: 404 });
+        return Response.json({ workflows: [{ id: 1, name: "Terraform", path: ".github/workflows/terraform.yml", state: "active", html_url: "https://github.com/x" }] });
+      },
+    });
+    const res = await call(t.env, "/api/github/workflows");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([{ repo: "mike12806/gh_hdc", id: 1, name: "Terraform", file: "terraform.yml", url: "https://github.com/x" }]);
+    expect(runsOf.sort()).toEqual(["mike12806/gh_hdc", "mike12806/public-jobs"]);
   });
 
   it("uses KV only when GitHub confirms the copy, and shows an outage as an outage", async () => {
@@ -155,6 +186,7 @@ jobs: {}
       internet: (req) => {
         if (!githubUp) throw new TypeError("fetch failed");
         if (req.headers.get("If-None-Match") === '"v1"') return new Response(null, { status: 304 });
+        if (new URL(req.url).pathname === "/user/repos") return Response.json(REPOS, { headers: { ETag: '"v1"' } });
         const repo = new URL(req.url).pathname.split("/").slice(2, 4).join("/");
         return Response.json({ workflow_runs: [run(repo)] }, { headers: { ETag: '"v1"' } });
       },
@@ -162,11 +194,12 @@ jobs: {}
 
     const first = await call(t.env, "/api/github/runs");
     expect((await first.json()) as unknown[]).toHaveLength(2);
-    expect(t.cache.size).toBe(2);
+    // The repository list, then each of the owner's two repositories' runs.
+    expect(t.cache.size).toBe(3);
 
     const second = await call(t.env, "/api/github/runs");
     expect((await second.json()) as unknown[]).toMatchObject([{ title: expect.stringContaining("cached run") }, {}]);
-    expect(t.internetCalls.slice(2).map((r) => r.headers.get("If-None-Match"))).toEqual(['"v1"', '"v1"']);
+    expect(t.internetCalls.slice(3).map((r) => r.headers.get("If-None-Match"))).toEqual(['"v1"', '"v1"', '"v1"']);
 
     githubUp = false;
     const third = await call(t.env, "/api/github/runs");

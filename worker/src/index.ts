@@ -145,7 +145,7 @@ app.get("/api/github/workflows/:owner/:repo/:file", async (c) => {
 app.post("/api/github/workflows/:owner/:repo/:file/dispatch", async (c) => {
   const { owner, repo, file } = c.req.param();
   const body = (await c.req.json().catch(() => ({}))) as { inputs?: Record<string, unknown> };
-  const full = github.assertRepo(c.env, `${owner}/${repo}`);
+  const full = await github.assertRepo(runtime(c), `${owner}/${repo}`);
   return c.json(await audited(c.env, who(c), "github.dispatch", `${full}/${file}`, body.inputs ?? {}, () => github.dispatch(runtime(c), full, file, body.inputs ?? {})));
 });
 
