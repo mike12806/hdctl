@@ -111,7 +111,7 @@ export function testEnv(opts: { upstream?: Upstream; internet?: Internet; vars?:
     CF_ACCESS_TEAM_DOMAIN: TEAM,
     CF_ACCESS_AUD: AUD,
     ALLOWED_EMAILS: OWNER,
-    GITHUB_REPOS: "mike12806/gh_hdc,mike12806/public-jobs",
+    GITHUB_OWNER: "mike12806",
     BUILD_ID: BUILD,
     ...bindings,
     ...opts.vars,
