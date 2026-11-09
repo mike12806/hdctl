@@ -19,7 +19,7 @@ type Pending =
 const KIND_LABEL: Record<UnifiDevice["kind"], string> = { gateway: "Gateway", switch: "Switch", ap: "AP", other: "Device" };
 
 export function UnifiPage() {
-  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<UnifiOverview>("/api/unifi"), 30_000);
+  const { data, fetchedAt, error, loading, reload, intervalMs } = usePoll(() => api<UnifiOverview>("/api/unifi"), 30_000);
   const now = useNow();
   const [pending, setPending] = useState<Pending>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -66,7 +66,7 @@ export function UnifiPage() {
         title="UniFi"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} /> · the UDM's own API, asked on each refresh
+            <AsOf at={fetchedAt} loading={loading} every={intervalMs} /> · the UDM's own API, asked on each refresh
             {data?.devices.data ? ` · ${devices.filter((d) => d.online).length}/${devices.length} devices online` : ""}
             {clients ? ` · ${clients.length} clients` : ""}
           </>
