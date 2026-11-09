@@ -71,7 +71,7 @@ CF_ACCESS_AUD = "e4caaecc9c2ff4ba8fd37f954797bd6a6b70b0aaa294d458b2db38648b09590
 # these. Comma-separated.
 ALLOWED_EMAILS = "michaelefaherty@gmail.com"
 # Repositories whose Actions runs hdctl shows and can dispatch.
-GITHUB_REPOS = "mike12806/gh_hdc,mike12806/public-jobs"
+GITHUB_REPOS = "mike12806/gh_hdc,mike12806/public-jobs,mike12806/hdctl"
 # The deployed build; deploy.yml overrides it with the git SHA (--var), and the
 # client is built with the same value. A mismatch tells an open tab to reload.
 BUILD_ID = "dev"
