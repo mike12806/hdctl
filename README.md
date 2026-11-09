@@ -10,11 +10,6 @@ gates it, and the Worker reaches the LAN over [Workers VPC][workers-vpc]
 through an outbound-only Cloudflare Tunnel. There is no inbound path into the
 lab.
 
-<p>
-  <img src="docs/status.jpg" alt="Status page: live as of 8:30 PM, 27 endpoints up, grouped by Proxmox hosts and Vault" width="49%">
-  <img src="docs/proxmox.jpg" alt="Proxmox page: per-host CPU and RAM meters and a guest table with reboot and shut down buttons" width="49%">
-</p>
-
 | Page | What it shows | What it can do |
 |---|---|---|
 | **Status** | Every endpoint probed live: state, latency, HTTP code; a 2-hour history strip and 24-hour uptime from checks recorded every 2 minutes. Vault nodes report active / standby / sealed | Refresh |
@@ -104,9 +99,6 @@ flowchart LR
 - **Cost:** it fits comfortably within the Workers Paid plan's included usage.
   Workers bill CPU time, not wall time, so slow backends cost nothing.
 
-More detail (request path, health-check pipeline, data model, browser caching,
-cost breakdown) is in [docs/internals.md](docs/internals.md).
-
 ## Security
 
 | Layer | What it does |
@@ -140,7 +132,6 @@ worker/
 client/
   src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Uptime · Actions · Pull requests · Audit
   test/               vitest + jsdom
-docs/                 internals.md · operations.md
 ```
 
 ## Running your own
@@ -162,9 +153,6 @@ To adapt hdctl to another lab:
 4. **Deploy** with `wrangler deploy`, after creating the D1 database and KV
    namespace and applying migrations. `.github/workflows/deploy.yml` shows how
    this repo does it from CI, with secrets pulled from Vault.
-
-How this particular lab is set up and operated is in
-[docs/operations.md](docs/operations.md).
 
 ## Local development
 

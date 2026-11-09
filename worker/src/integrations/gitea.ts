@@ -20,7 +20,7 @@ const PUBLIC = GITEA.link ?? "https://git.mfaherty.net";
 const PAGE = 50;
 
 function token(env: Env): string {
-  if (!env.GITEA_TOKEN) throw new NotConfigured("GITEA_TOKEN is not set. Create a Gitea access token and store it at Vault kv/github/hdctl/gitea (see docs/operations.md).");
+  if (!env.GITEA_TOKEN) throw new NotConfigured("GITEA_TOKEN is not set. Create a Gitea access token and store it at Vault kv/github/hdctl/gitea.");
   return env.GITEA_TOKEN;
 }
 
