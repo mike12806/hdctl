@@ -22,7 +22,8 @@ isn't itself in the cluster.
 
 | Panel | What it shows | What it can do |
 |---|---|---|
-| **Status** | 27 endpoints probed live on every refresh: state, latency, HTTP code; plus a 2-hour history strip and 24-hour uptime from checks recorded every 2 minutes. Vault nodes report active / standby / sealed | Refresh |
+| **Status** | 29 endpoints probed live on every refresh: state, latency, HTTP code; plus a 2-hour history strip and 24-hour uptime from checks recorded every 2 minutes. Vault nodes report active / standby / sealed | Refresh |
+| **Metrics** | From Prometheus and Alertmanager, live: firing alerts; workloads that need attention and containers restarted in the last hour; CPU, RAM, root disk, load and uptime for every machine with a node exporter (k3s nodes, Proxmox, PBS, PDM); the fullest volumes; WAN throughput and latency, Wi-Fi and wired clients, access points and the last speed test (UniFi, via unpoller); each Pi-hole's queries and blocking; scrape targets that are down | Read only |
 | **Argo CD** | Every Application's health, sync, and last operation | Refresh (normal or hard), Sync (never prunes) |
 | **Proxmox** | All 7 standalone hosts: node CPU/RAM/uptime and every VM and CT | Start, shut down, reboot (ACPI; no hard stop) |
 | **Actions** | Recent runs across `gh_hdc` and `public-jobs`, and every active workflow | Run any `workflow_dispatch` workflow, with a form built from its own inputs |
@@ -45,7 +46,7 @@ flowchart LR
     end
     d1[("D1 <b>hdctl-db</b><br/>history + audit only")]
     kv[("KV <b>hdctl-cache</b><br/>ETag-validated copies")]
-    vpc["Workers VPC<br/>27 pinned VPC Services"]
+    vpc["Workers VPC<br/>29 pinned VPC Services"]
   end
 
   gh["api.github.com"]
@@ -53,7 +54,7 @@ flowchart LR
   subgraph lab["HDC (LAN)"]
     subgraph k3s["k3s cluster"]
       cfd["cloudflared<br/>tunnel <i>kubernetes</i>"]
-      capps["Argo CD · Harbor · Immich<br/>Authentik · Paperless · Emby<br/>Open WebUI · LiteLLM"]
+      capps["Argo CD · Harbor · Immich<br/>Authentik · Paperless · Emby<br/>Open WebUI · LiteLLM<br/>Prometheus · Alertmanager"]
     end
     hosts["pve…pve7 :8006<br/>vault-1…5 :8200<br/>PBS · PDM · TrueNAS ×2<br/>UDM · Home Assistant · Gitea"]
   end
@@ -78,7 +79,7 @@ off, so the only way in is `hdctl.mfaherty.net`, behind the Access app.
 
 **Pinned VPC Services, not a VPC Network binding.** Each target is its own VPC
 Service locked to one `host:port`. Even a compromised Worker could reach those
-27 endpoints and nothing else on the LAN. Off-cluster targets are pinned **by
+29 endpoints and nothing else on the LAN. Off-cluster targets are pinned **by
 IP**, so they need neither the gateway nor Pi-hole/CoreDNS. HTTPS hops use
 `verify_full`: cloudflared connects to the IP and checks the certificate
 against the name in the URL (the SNI), e.g. `pve4.mfaherty.net` at
@@ -135,6 +136,7 @@ and 100,000 written a day, and the cron alone writes about 144,000.
 | Status: duration, history strip, 24 h uptime | D1 (recorded by the cron every 2 min) | — | `checks`, `target_state` |
 | Argo CD | Argo CD API | **No**: it sends no validators, so a copy could never be confirmed | — |
 | Proxmox | Each host's API (`/cluster/resources`) | **No**, same reason | — |
+| Metrics | Prometheus (`/api/v1/query`, one PromQL query per section) and Alertmanager (`/api/v2/alerts`), through their own VPC Services | **No**, same reason. A section whose query fails shows its error and no data; the rest still render | — |
 | GitHub runs, workflows, dispatch inputs | GitHub API | **KV, revalidated on every read** | — |
 | Audit | D1 | — | `audit_log` |
 
@@ -223,7 +225,7 @@ nothing) and from the cron every two minutes (recorded, for history).
 ```mermaid
 flowchart TD
   page["Status page request"] --> fan
-  cron["Cron every 2 min"] --> fan["Probe all 27 targets in parallel<br/>GET check.path through each VPC Service<br/>8 s timeout"]
+  cron["Cron every 2 min"] --> fan["Probe all 29 targets in parallel<br/>GET check.path through each VPC Service<br/>8 s timeout"]
   fan --> cls{"classify()"}
   cls -->|expected code, under 3 s| up["up"]
   cls -->|slow, or unexpected 4xx| deg["degraded"]
@@ -231,7 +233,7 @@ flowchart TD
   cls -->|Vault: 200 active · 429 standby · 503 sealed| vault["Vault-aware state"]
   up & deg & down & vault --> who{"who asked?"}
   who -->|page| merge["Live state + D1 history<br/>(duration, strip, 24 h uptime)"]
-  who -->|cron| batch["One D1 batch:<br/>INSERT checks ×27<br/>UPSERT target_state ×27 (keeps 'since' unless state changed)"]
+  who -->|cron| batch["One D1 batch:<br/>INSERT checks ×29<br/>UPSERT target_state ×29 (keeps 'since' unless state changed)"]
   batch --> prune["waitUntil: delete checks older than 7 days"]
 ```
 
@@ -283,7 +285,7 @@ erDiagram
 | No bypass routes | `workers_dev = false`, `preview_urls = false`, custom domain only |
 | Worker verifies the JWT itself | RS256 against Access's JWKS, `aud` = the app's AUD, `iss` = the team domain, expiry, and email ∈ `ALLOWED_EMAILS`. Assets included (`run_worker_first`) |
 | CSRF | State-changing calls need `X-Hdctl: 1` and a same-origin `Origin`; a cross-site page can't send that header without a CORS preflight, which is never approved |
-| Pinned VPC Services | 27 `host:port` pins; no VPC Network binding; TLS `verify_full` everywhere it's HTTPS |
+| Pinned VPC Services | 29 `host:port` pins; no VPC Network binding; TLS `verify_full` everywhere it's HTTPS |
 | Narrow actions | Argo: account `hdctl` with RBAC `applications, get` + `sync` only; sync never prunes. Proxmox: start / shutdown / reboot only, validated host + node + type + vmid. GitHub: only repos in `GITHUB_REPOS`, only workflows with `workflow_dispatch`, inputs checked against the workflow's own definition |
 | Audit | Every action is written to D1 *before* it runs and finished after |
 | Secrets | Only in Vault; synced to Worker secrets by the deploy workflow; never in git |
@@ -407,7 +409,7 @@ worker/
     cache.ts          KV cache that only serves origin-confirmed (304) copies
     audit.ts          audited() wrapper + audit log reads
     targets.ts        target catalog + VPC fetch helper
-    integrations/     argo.ts · proxmox.ts · github.ts
+    integrations/     argo.ts · proxmox.ts · github.ts · prometheus.ts
   test/               vitest, see "Tests" below
 client/
   src/pages/          Status · Argo · Proxmox · Actions · Audit
@@ -468,7 +470,10 @@ fake api.github.com. They pin down what matters most:
   state changes;
 - an Argo sync never prunes, a guest action reaches only its own host with its
   own token, a dispatch only sends known inputs, and each is audited;
-- KV answers only after GitHub's 304; an outage is an error, never the cached copy.
+- KV answers only after GitHub's 304; an outage is an error, never the cached copy;
+- the Metrics page asks Prometheus and Alertmanager on every request, one query
+  per section; a section that fails shows its error, never older data, and the
+  parsers name machines, workloads and alerts correctly.
 
 The client tests cover the polling hook (a failed refresh clears the data, data
 older than two intervals is withheld, a late answer can't replace a newer one,
