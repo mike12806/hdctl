@@ -7,6 +7,7 @@ import { MetricsPage } from "./pages/Metrics";
 import { ArgoPage } from "./pages/Argo";
 import { ProxmoxPage } from "./pages/Proxmox";
 import { UnifiPage } from "./pages/Unifi";
+import { KumaPage } from "./pages/Kuma";
 import { ActionsPage } from "./pages/Actions";
 import { AuditPage } from "./pages/Audit";
 
@@ -16,6 +17,7 @@ const NAV = [
   { to: "/argo", label: "Argo CD" },
   { to: "/proxmox", label: "Proxmox" },
   { to: "/unifi", label: "UniFi" },
+  { to: "/uptime", label: "Uptime" },
   { to: "/actions", label: "Actions" },
   { to: "/audit", label: "Audit" },
 ];
@@ -81,6 +83,7 @@ export function App() {
           <Route path="/argo" element={<ArgoPage />} />
           <Route path="/proxmox" element={<ProxmoxPage />} />
           <Route path="/unifi" element={<UnifiPage />} />
+          <Route path="/uptime" element={<KumaPage />} />
           <Route path="/actions" element={<ActionsPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="*" element={<StatusPage />} />

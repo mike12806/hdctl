@@ -180,6 +180,11 @@ service_id = "01a10ebb-18a5-77b2-8b38-cad8d4812332"
 remote = true
 
 [[vpc_services]]
+binding = "KUMA"
+service_id = "01a1c173-7ad0-7a63-8ae3-b3bb89b4595b"
+remote = true
+
+[[vpc_services]]
 binding = "ARGO"
 service_id = "01a0fddb-2934-74e0-ae60-47e726e9552a"
 remote = true
