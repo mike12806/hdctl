@@ -352,7 +352,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  pr["Pull request"] --> ci["ci.yml<br/>vpc:check · typecheck · tests<br/>build · wrangler --dry-run"]
+  pr["Pull request"] --> ci["ci.yml: Server Tests · Client Tests · Build<br/>(the checks the main ruleset requires)<br/>codeql.yml: code scanning"]
   main["Push to main"] --> test["deploy.yml: test"]
   test --> aud{"AUD set?"}
   aud -->|no| stop(["fail: set CF_ACCESS_AUD"])
@@ -425,7 +425,7 @@ client/
   src/pages/          Status · Argo · Proxmox · Actions · Audit
   src/components/     pills, meters, confirm dialog
   test/               vitest + jsdom: polling, the API wrapper, reload on deploy
-.github/workflows/    ci.yml (PRs) · deploy.yml (main)
+.github/workflows/    ci.yml (PRs) · codeql.yml (PRs, main, weekly) · deploy.yml (main)
 ```
 
 ## Local development
