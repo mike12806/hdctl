@@ -13,7 +13,7 @@ export function AuditPage() {
         title="Audit log"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} /> · every action hdctl has taken on another system, newest first (last 200)
+            <AsOf at={fetchedAt} loading={loading} every={30_000} /> · every action hdctl has taken on another system, newest first (last 200)
           </>
         }
       >

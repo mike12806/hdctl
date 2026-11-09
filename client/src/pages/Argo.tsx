@@ -41,7 +41,7 @@ export function ArgoPage() {
         title="Argo CD"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} />
+            <AsOf at={fetchedAt} loading={loading} every={30_000} />
             {data ? ` · ${data.length} applications · ${unhealthy} not healthy · ${outOfSync} out of sync` : ""}
           </>
         }
