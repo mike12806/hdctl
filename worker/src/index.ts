@@ -10,6 +10,7 @@ import * as pve from "./integrations/proxmox";
 import * as github from "./integrations/github";
 import * as prometheus from "./integrations/prometheus";
 import * as unifi from "./integrations/unifi";
+import * as kuma from "./integrations/kuma";
 
 const app = new Hono<AppEnv>();
 
@@ -122,6 +123,9 @@ app.post("/api/unifi/clients/:mac/reconnect", async (c) => {
   return c.json(await audited(c.env, who(c), "unifi.reconnect", `unifi/client/${mac}`, undefined, () => unifi.reconnectClient(c.env, mac)));
 });
 app.post("/api/unifi/speedtest", async (c) => c.json(await audited(c.env, who(c), "unifi.speedtest", "unifi/gateway", undefined, () => unifi.speedTest(c.env))));
+
+// Uptime Kuma: Kuma's own /metrics, live on every request. Read-only.
+app.get("/api/kuma", async (c) => c.json(await kuma.overview(c.env)));
 
 // GitHub Actions
 app.get("/api/github/runs", async (c) => c.json(await github.recentRuns(runtime(c))));
