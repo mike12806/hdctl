@@ -21,8 +21,8 @@ revalidated against the source).
 ## Other rules this codebase keeps
 
 - Nothing shown is stale: no fallback to a cached copy when the source fails;
-  a section that fails shows its error and no data (see README, "Where the
-  data comes from").
+  a section that fails shows its error and no data (see docs/internals.md,
+  "Where the data comes from").
 - TLS is always verified (`verify_full`). If a device only has a self-signed
   certificate, give it one Workers VPC trusts (public CA or Cloudflare Origin
   CA); never turn verification off.
