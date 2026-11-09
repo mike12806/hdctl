@@ -36,9 +36,9 @@ crons = ["*/2 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "hdctl-db"
-# database_id is written by the deploy workflow's "Resolve D1 database" step
-# (created on the first deploy with --location enam, next to the tunnel's
-# BOS/EWR connectors). Commit it here once it exists.
+# Created by the first deploy (--location enam, next to the tunnel's BOS/EWR
+# connectors). The deploy checks this still matches hdctl-db's id.
+database_id = "d8fbbaa2-ed8e-4104-84d2-b1cb92aefd90"
 migrations_dir = "migrations"
 
 # A cache that can't serve stale data: entries are only ever used after the
@@ -48,8 +48,8 @@ migrations_dir = "migrations"
 # are never cached.
 [[kv_namespaces]]
 binding = "CACHE"
-# id is written by the deploy workflow's "Resolve KV namespace" step (title
-# hdctl-cache, created on the first deploy). Commit it here once it exists.
+# hdctl-cache, created by the first deploy. The deploy checks this still matches.
+id = "d4206a06e16d4e55861592e640efddd2"
 
 [observability]
 enabled = true
