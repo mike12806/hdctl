@@ -169,6 +169,11 @@ p { margin: 0 0 0.75rem; }
 .tick-info { background: var(--info); }
 .forge-tag { font-size: 10px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.05em; padding: 0 5px; border-radius: 4px; background: var(--info-bg); color: var(--info); margin-left: 6px; }
 .forge-error + .forge-error { margin-top: 6px; }
+.pull { align-items: flex-start; }
+.pull-flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.pull-flags:empty { display: none; }
+.label-tag { font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--muted); }
+@media (max-width: 640px) { .pull { flex-wrap: wrap; } .pull .row-actions { width: 100%; text-align: left; } }
 .card-foot { display: flex; justify-content: space-between; font-size: 11px; }
 
 /* --- Tables ---------------------------------------------------------------- */

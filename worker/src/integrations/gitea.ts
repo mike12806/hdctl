@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import { BadRequest, NotConfigured, UpstreamError } from "../errors";
 import { targetById, targetFetch } from "../targets";
-import { dispatchInputs } from "./github";
+import { dispatchInputs, type ChecksState, type PullRequest } from "./github";
 
 /**
  * Gitea Actions for every repository on the Gitea instance: recent runs, the
@@ -51,6 +51,7 @@ interface Repo {
   archived: boolean;
   has_actions?: boolean;
   default_branch: string;
+  default_merge_style?: string;
 }
 
 /** Every repository on the instance the token can see, archived ones left out. Sorted by name. */
@@ -184,4 +185,69 @@ export async function dispatch(env: Env, repo: string, file: string, values: Rec
   for (const i of inputs) if (i.required && !(i.name in body) && i.default === null) throw new BadRequest(`input "${i.name}" is required`);
   await gitea(env, `/repos/${repo}/actions/workflows/${encodeURIComponent(file)}/dispatches`, { method: "POST", body: JSON.stringify({ ref, inputs: body }) });
   return { repo, file, ref, inputs: body };
+}
+
+// --- Pull requests ----------------------------------------------------------------------
+
+interface GiteaPull {
+  number: number;
+  title: string;
+  html_url: string;
+  user: { login: string } | null;
+  draft?: boolean;
+  created_at: string;
+  updated_at: string;
+  mergeable: boolean;
+  head: { ref: string; sha: string };
+  base: { ref: string };
+  labels: { name: string }[] | null;
+}
+
+const GITEA_CHECKS: Record<string, ChecksState> = { success: "success", failure: "failure", error: "failure", pending: "pending", warning: "success" };
+
+/** Every open pull request on the instance, with each one's combined commit status. */
+export async function openPulls(env: Env): Promise<PullRequest[]> {
+  const lists = await Promise.all(
+    (await repos(env)).map(async (repo) => {
+      const pulls = await json<GiteaPull[]>(env, `/repos/${repo.full_name}/pulls?state=open&limit=${PAGE}`);
+      return Promise.all(
+        pulls.map(async (p): Promise<PullRequest> => {
+          const status = await json<{ state: string }>(env, `/repos/${repo.full_name}/commits/${p.head.sha}/status`);
+          return {
+            forge: "gitea",
+            repo: repo.full_name,
+            number: p.number,
+            title: p.title,
+            url: publicUrl(p.html_url),
+            author: p.user?.login ?? null,
+            draft: p.draft === true,
+            createdAt: iso(p.created_at),
+            updatedAt: iso(p.updated_at),
+            head: p.head.ref,
+            headSha: p.head.sha,
+            base: p.base.ref,
+            labels: (p.labels ?? []).map((l) => l.name),
+            checks: GITEA_CHECKS[status.state] ?? "none",
+            mergeable: p.mergeable ? "yes" : "conflict",
+            review: null,
+          };
+        }),
+      );
+    }),
+  );
+  return lists.flat().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** Merge with the repository's default merge style, pinned to the head commit the page showed. */
+export async function mergePull(env: Env, repoName: string, number: number, sha: string) {
+  const repo = await repoNamed(env, repoName);
+  const style = repo.default_merge_style || "merge";
+  await gitea(env, `/repos/${repo.full_name}/pulls/${number}/merge`, { method: "POST", body: JSON.stringify({ Do: style, head_commit_id: sha }) });
+  return { repo: repo.full_name, number, method: style, merged: true };
+}
+
+export async function closePull(env: Env, repoName: string, number: number) {
+  const repo = await repoNamed(env, repoName);
+  const res = await (await gitea(env, `/repos/${repo.full_name}/pulls/${number}`, { method: "PATCH", body: JSON.stringify({ state: "closed" }) })).json<{ state: string }>();
+  return { repo: repo.full_name, number, state: res.state };
 }

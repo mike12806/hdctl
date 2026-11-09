@@ -233,3 +233,126 @@ export async function dispatch(rt: Runtime, repo: string, file: string, values: 
   await gh<null>(rt, `/repos/${repo}/actions/workflows/${file}/dispatches`, { method: "POST", body: JSON.stringify({ ref, inputs: body }) });
   return { repo, file, ref, inputs: body };
 }
+
+// --- Pull requests ----------------------------------------------------------------------
+
+export type ChecksState = "success" | "failure" | "pending" | "none";
+
+/** An open pull request, as the Pull requests page shows it. Same shape for GitHub and Gitea. */
+export interface PullRequest {
+  forge: "github" | "gitea";
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string | null;
+  draft: boolean;
+  createdAt: string;
+  updatedAt: string;
+  head: string;
+  /** The commit a merge is pinned to: if the branch moves, the merge is refused. */
+  headSha: string;
+  base: string;
+  labels: string[];
+  checks: ChecksState;
+  mergeable: "yes" | "conflict" | "unknown";
+  review: "approved" | "changes_requested" | "review_required" | null;
+}
+
+const PULLS_QUERY = `query($q: String!) {
+  search(query: $q, type: ISSUE, first: 100) {
+    nodes {
+      ... on PullRequest {
+        number title url isDraft createdAt updatedAt mergeable reviewDecision
+        headRefName headRefOid baseRefName
+        author { login }
+        labels(first: 10) { nodes { name } }
+        repository { nameWithOwner }
+        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+      }
+    }
+  }
+}`;
+
+interface GqlPull {
+  number: number;
+  title: string;
+  url: string;
+  isDraft: boolean;
+  createdAt: string;
+  updatedAt: string;
+  mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+  reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
+  headRefName: string;
+  headRefOid: string;
+  baseRefName: string;
+  author: { login: string } | null;
+  labels: { nodes: { name: string }[] };
+  repository: { nameWithOwner: string };
+  commits: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
+}
+
+const CHECKS: Record<string, ChecksState> = { SUCCESS: "success", FAILURE: "failure", ERROR: "failure", PENDING: "pending", EXPECTED: "pending" };
+
+/**
+ * Every open pull request in GITHUB_OWNER's own, unarchived repositories:
+ * one GraphQL search, live, with each one's checks, mergeability and review.
+ */
+export async function openPulls(rt: Runtime): Promise<PullRequest[]> {
+  const q = `is:pr is:open archived:false user:${rt.env.GITHUB_OWNER}`;
+  const body = await gh<{ data?: { search: { nodes: (GqlPull | Record<string, never>)[] } }; errors?: { message: string }[] }>(rt, "/graphql", {
+    method: "POST",
+    body: JSON.stringify({ query: PULLS_QUERY, variables: { q } }),
+  });
+  if (body.errors?.length || !body.data) throw new UpstreamError(`GitHub GraphQL: ${body.errors?.map((e) => e.message).join("; ") ?? "no data"}`);
+  const owner = rt.env.GITHUB_OWNER.toLowerCase();
+  return body.data.search.nodes
+    .filter((p): p is GqlPull => "number" in p && p.repository.nameWithOwner.split("/")[0]!.toLowerCase() === owner)
+    .map((p): PullRequest => ({
+      forge: "github",
+      repo: p.repository.nameWithOwner,
+      number: p.number,
+      title: p.title,
+      url: p.url,
+      author: p.author?.login ?? null,
+      draft: p.isDraft,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      head: p.headRefName,
+      headSha: p.headRefOid,
+      base: p.baseRefName,
+      labels: p.labels.nodes.map((l) => l.name),
+      checks: CHECKS[p.commits.nodes[0]?.commit.statusCheckRollup?.state ?? ""] ?? "none",
+      mergeable: p.mergeable === "MERGEABLE" ? "yes" : p.mergeable === "CONFLICTING" ? "conflict" : "unknown",
+      review: p.reviewDecision ? (p.reviewDecision.toLowerCase() as PullRequest["review"]) : null,
+    }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export function parsePullNumber(n: string): number {
+  if (!/^[1-9]\d{0,9}$/.test(n)) throw new BadRequest("bad pull request number");
+  return Number(n);
+}
+
+export function parseSha(sha: unknown): string {
+  if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) throw new BadRequest("the merge needs the head commit (sha) you saw, so a branch that moved since isn't merged unseen");
+  return sha;
+}
+
+/**
+ * Merge with the first method the repository allows (merge commit, then
+ * squash, then rebase), pinned to the head commit the page showed.
+ */
+export async function mergePull(rt: Runtime, repo: string, number: number, sha: string) {
+  await assertRepo(rt, repo);
+  const r = await gh<{ allow_merge_commit?: boolean; allow_squash_merge?: boolean; allow_rebase_merge?: boolean }>(rt, `/repos/${repo}`);
+  const method = r.allow_merge_commit !== false ? "merge" : r.allow_squash_merge ? "squash" : "rebase";
+  const res = await gh<{ merged: boolean; sha: string; message: string }>(rt, `/repos/${repo}/pulls/${number}/merge`, { method: "PUT", body: JSON.stringify({ sha, merge_method: method }) });
+  return { repo, number, method, merged: res.merged, sha: res.sha };
+}
+
+export async function closePull(rt: Runtime, repo: string, number: number) {
+  await assertRepo(rt, repo);
+  const res = await gh<{ state: string }>(rt, `/repos/${repo}/pulls/${number}`, { method: "PATCH", body: JSON.stringify({ state: "closed" }) });
+  return { repo, number, state: res.state };
+}
