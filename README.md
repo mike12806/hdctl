@@ -209,7 +209,8 @@ calls without the CSRF header are refused before anything is sent, that every
 page reads its source live and shows an error rather than old data when it
 fails, that the KV cache answers only after GitHub's 304, and that every
 action is validated, narrow and audited. The client tests cover polling (a
-failed refresh clears the data, stale data is withheld) and reloading after a
+failed refresh clears the data, stale data is withheld, polling pauses after
+15 minutes without input and resumes with a fresh load) and reloading after a
 deploy.
 
 [workers-vpc]: https://developers.cloudflare.com/workers-vpc/

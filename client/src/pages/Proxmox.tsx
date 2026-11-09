@@ -10,7 +10,7 @@ type Pending = { host: PveHost; guest: PveGuest; action: Action } | null;
 const STATUS: Record<string, Tone> = { running: "good", stopped: "muted", paused: "warn" };
 
 export function ProxmoxPage() {
-  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<PveHost[]>("/api/proxmox"), 30_000);
+  const { data, fetchedAt, error, loading, reload, intervalMs } = usePoll(() => api<PveHost[]>("/api/proxmox"), 30_000);
   const [filter, setFilter] = useState("");
   const [runningOnly, setRunningOnly] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
@@ -39,7 +39,7 @@ export function ProxmoxPage() {
         title="Proxmox"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} every={30_000} />
+            <AsOf at={fetchedAt} loading={loading} every={intervalMs} />
             {data ? ` · ${totals.hostsUp}/${hosts.length} hosts answering · ${totals.running}/${totals.guests} guests running` : ""}
           </>
         }

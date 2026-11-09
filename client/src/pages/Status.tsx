@@ -10,7 +10,7 @@ const HISTORY_SLOTS = 60;
 
 export function StatusPage() {
   // Every poll makes the Worker probe all targets through the tunnel, now.
-  const { data, fetchedAt, error, loading, reload } = usePoll(() => api<StatusSummary>("/api/status"), 30_000);
+  const { data, fetchedAt, error, loading, reload, intervalMs } = usePoll(() => api<StatusSummary>("/api/status"), 30_000);
   const now = useNow();
 
   const targets = data?.targets ?? [];
@@ -22,7 +22,7 @@ export function StatusPage() {
         title="Status"
         subtitle={
           <>
-            <AsOf at={fetchedAt} loading={loading} every={30_000} /> · every endpoint probed through the tunnel on each refresh
+            <AsOf at={fetchedAt} loading={loading} every={intervalMs} /> · every endpoint probed through the tunnel on each refresh
           </>
         }
       >
