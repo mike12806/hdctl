@@ -365,7 +365,7 @@ const ACK_LOGIN = 0;
 const ACK_INCIDENTS = 1;
 
 const SETUP =
-  "KUMA_TOKEN is not set. Sign in to Uptime Kuma, run localStorage.getItem(\"token\") in the browser console, and store the result at Vault kv/github/hdctl/kuma as KUMA_TOKEN (see docs/operations.md).";
+  "KUMA_TOKEN is not set. Sign in to Uptime Kuma, run localStorage.getItem(\"token\") in the browser console, and store the result at Vault kv/github/hdctl/kuma as KUMA_TOKEN.";
 
 type Failure = { error: string; setup?: boolean; auth?: boolean };
 
