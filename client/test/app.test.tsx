@@ -83,6 +83,49 @@ describe("App", () => {
   });
 });
 
+describe("Tab bar", () => {
+  // jsdom has no layout: give the bar a phone's width (360 px) and nine tabs' worth of content (687 px).
+  function phoneLayout() {
+    const box = (left: number, width: number) => ({ left, width, right: left + width, top: 0, bottom: 48, height: 48, x: left, y: 0, toJSON: () => ({}) });
+    const isBar = (el: Element) => el.classList.contains("tabs");
+    return [
+      vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) { return isBar(this) ? 687 : 0; }),
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) { return isBar(this) ? 360 : 0; }),
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        // "Pull requests" sits at 510-613 px before the bar scrolls.
+        if (isBar(this)) return box(0, 360) as DOMRect;
+        const scroll = this.parentElement?.scrollLeft ?? 0;
+        return box(510 - scroll, 103) as DOMRect;
+      }),
+    ];
+  }
+
+  it("scrolls the current page's tab into view and fades only the edges with more tabs past them", async () => {
+    const spies = phoneLayout();
+    try {
+      render(
+        <MemoryRouter initialEntries={["/pulls"]}>
+          <App />
+        </MemoryRouter>,
+      );
+      const bar = document.querySelector<HTMLElement>(".tabs")!;
+      expect(bar.querySelector(".tab-active")?.textContent).toBe("Pull requests");
+      // Centred: 510 + 103 / 2 - 180.
+      expect(bar.scrollLeft).toBeCloseTo(381.5);
+      act(() => void bar.dispatchEvent(new Event("scroll")));
+      expect(bar.hasAttribute("data-more-left")).toBe(true);
+      expect(bar.hasAttribute("data-more-right")).toBe(false);
+
+      bar.scrollLeft = 0;
+      act(() => void bar.dispatchEvent(new Event("scroll")));
+      expect(bar.hasAttribute("data-more-left")).toBe(false);
+      expect(bar.hasAttribute("data-more-right")).toBe(true);
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+  });
+});
+
 describe("Status page", () => {
   it("takes the board down when a refresh fails, rather than showing the last one", async () => {
     vi.useFakeTimers();

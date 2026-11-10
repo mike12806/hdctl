@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { NEW_BUILD_EVENT, api } from "./api";
 import { reloadPage } from "./reload";
 import { StatusPage } from "./pages/Status";
@@ -50,6 +50,36 @@ export function App() {
     return () => window.removeEventListener("pageshow", onShow);
   }, []);
 
+  // On a phone the tabs are a bottom bar that scrolls sideways (styles.css):
+  // keep the current page's tab in view, centred, after every navigation,
+  // and mark the side(s) with more tabs past the edge so the bar fades there.
+  const { pathname } = useLocation();
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = tabsRef.current;
+    if (!bar) return;
+    const mark = () => {
+      const more = bar.scrollWidth - bar.clientWidth;
+      bar.toggleAttribute("data-more-left", more > 1 && bar.scrollLeft > 1);
+      bar.toggleAttribute("data-more-right", more > 1 && bar.scrollLeft < more - 1);
+    };
+    mark();
+    bar.addEventListener("scroll", mark, { passive: true });
+    window.addEventListener("resize", mark);
+    return () => {
+      bar.removeEventListener("scroll", mark);
+      window.removeEventListener("resize", mark);
+    };
+  }, []);
+  useEffect(() => {
+    const bar = tabsRef.current;
+    const tab = bar?.querySelector<HTMLElement>(".tab-active");
+    if (!bar || !tab || bar.scrollWidth <= bar.clientWidth) return;
+    const b = bar.getBoundingClientRect();
+    const t = tab.getBoundingClientRect();
+    bar.scrollLeft += t.left + t.width / 2 - (b.left + b.width / 2);
+  }, [pathname]);
+
   return (
     <div className="shell">
       <nav className="topbar">
@@ -58,12 +88,14 @@ export function App() {
           <span className="brand-name">hdctl</span>
           <span className="brand-sub">home data center</span>
         </a>
-        <div className="tabs">
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `tab${isActive ? " tab-active" : ""}`}>
-              {n.label}
-            </NavLink>
-          ))}
+        <div className="tabs-bar">
+          <div className="tabs" ref={tabsRef}>
+            {NAV.map((n) => (
+              <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `tab${isActive ? " tab-active" : ""}`}>
+                {n.label}
+              </NavLink>
+            ))}
+          </div>
         </div>
         <div className="whoami" title="Signed in through Cloudflare Access">
           {email ?? ""}
