@@ -81,7 +81,16 @@ p { margin: 0 0 0.75rem; }
 .brand-prompt { color: var(--accent); font-family: var(--mono); font-weight: 700; }
 .brand-name { font-family: var(--mono); font-weight: 700; font-size: 17px; letter-spacing: -0.02em; }
 .brand-sub { color: var(--muted); font-size: 12px; }
+/* On a phone .tabs-bar is the bottom tab bar; on a wider screen it is just a wrapper. */
+.tabs-bar { display: contents; }
 .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+/* Fade the edge that has more tabs past it, so the bar reads as scrollable. */
+.tabs[data-more-left] { --fade-l: 32px; }
+.tabs[data-more-right] { --fade-r: 32px; }
+.tabs[data-more-left], .tabs[data-more-right] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade-l, 0px), #000 calc(100% - var(--fade-r, 0px)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade-l, 0px), #000 calc(100% - var(--fade-r, 0px)), transparent);
+}
 .tab { padding: 6px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; white-space: nowrap; }
 @media (hover: hover) { .tab:hover { color: var(--text); background: var(--panel-2); } }
 .tab-active { color: var(--text); background: var(--panel-2); box-shadow: inset 0 -2px 0 var(--accent); }
@@ -283,14 +292,24 @@ p { margin: 0 0 0.75rem; }
   /* The tabs become a bottom tab bar, in thumb reach. The top bar's blur
      would make it the containing block for position: fixed, so it goes. */
   .topbar { backdrop-filter: none; background: var(--bg); }
-  .tabs {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px;
-    padding: 6px var(--pad-right) calc(6px + env(safe-area-inset-bottom)) var(--pad-left);
+  .tabs-bar {
+    display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
     background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border-top: 1px solid var(--border);
   }
-  .tab { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 4px 2px; font-size: 13px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; }
+  /* Nine labels don't fit side by side on a folded iPhone Duo (~466 px), let
+     alone a narrower phone: each tab is as wide as its label, they stretch to
+     fill the bar when there's room, and the bar scrolls sideways when not.
+     App.tsx scrolls the active tab into view. */
+  .tabs {
+    display: flex; gap: 2px;
+    overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+    scroll-padding-inline: var(--pad-left) var(--pad-right);
+    padding: 0 var(--pad-right) 0 var(--pad-left);
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 1 0 auto; display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 4px 12px; font-size: 13px; border-radius: 10px; scroll-snap-align: start; }
   .tab-active { box-shadow: inset 0 2px 0 var(--accent); }
 
   .page-header { align-items: stretch; gap: 12px; margin-bottom: 16px; }
@@ -353,7 +372,7 @@ p { margin: 0 0 0.75rem; }
   .toggle { min-height: 44px; font-size: 15px; gap: 10px; }
   .toggle input[type="checkbox"], .field-check input[type="checkbox"] { width: 22px; height: 22px; margin: 0; }
   .field-check { min-height: 44px; }
-  .tab { min-height: 44px; display: inline-flex; align-items: center; }
+  .tab { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
   .btn:active:not(:disabled) { filter: brightness(1.15); }
 }
 
