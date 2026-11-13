@@ -11,6 +11,7 @@ import * as github from "./integrations/github";
 import * as gitea from "./integrations/gitea";
 import * as prometheus from "./integrations/prometheus";
 import * as unifi from "./integrations/unifi";
+import * as pihole from "./integrations/pihole";
 import * as kuma from "./integrations/kuma";
 
 const app = new Hono<AppEnv>();
@@ -86,6 +87,9 @@ app.get("/api/status", async (c) => c.json(await statusSummary(c.env)));
 
 // Metrics: Prometheus and Alertmanager, queried live; each section succeeds or fails on its own.
 app.get("/api/metrics", async (c) => c.json(await prometheus.overview(c.env)));
+
+// DNS: each Pi-hole's own API, live, one short session per read. Read-only.
+app.get("/api/dns", async (c) => c.json(await pihole.overview(c.env)));
 
 // Argo CD
 app.get("/api/argo/apps", async (c) => c.json(await argo.listApps(c.env)));

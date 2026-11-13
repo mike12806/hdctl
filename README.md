@@ -13,7 +13,8 @@ lab.
 | Page | What it shows | What it can do |
 |---|---|---|
 | **Status** | Every endpoint probed live: state, latency, HTTP code; a 2-hour history strip and 24-hour uptime from checks recorded every 2 minutes. Vault nodes report active / standby / sealed | Refresh |
-| **Metrics** | From Prometheus and Alertmanager: firing alerts, unhealthy workloads, per-machine CPU/RAM/disk/load, the fullest volumes, Pi-hole stats, scrape targets that are down | Read only |
+| **Metrics** | From Prometheus and Alertmanager: firing alerts, unhealthy workloads, per-machine CPU/RAM/disk/load, the fullest volumes, scrape targets that are down | Read only |
+| **DNS** | From each Pi-hole's own API (one short login session per read, closed after): blocking on/off, queries, blocked and clients over the last 24 hours. A Pi-hole that fails shows its error and no numbers | Read only |
 | **Argo CD** | Every Application's health, sync state and last operation | Refresh, sync (never prunes) |
 | **Proxmox** | Each host's CPU/RAM/uptime and every VM and container | Start, shut down, reboot |
 | **UniFi** | From the UniFi gateway's own Network API: WAN health, latency and speed test; every gateway, switch and access point with firmware, clients and PoE ports; every connected client | Restart a device, flash its LED, power-cycle a PoE port, reconnect a Wi-Fi client, run a speed test |
@@ -148,7 +149,8 @@ To adapt hdctl to another lab:
    the GitHub account in `GITHUB_OWNER` (the Actions page shows all of its repositories).
 3. **Secrets.** Each integration reads its own credential:
    `ARGOCD_TOKEN`, `PVE_TOKENS` (JSON map of host to Proxmox API token),
-   `GITHUB_TOKEN`, `GITEA_TOKEN`, `UNIFI_API_KEY`, `KUMA_TOKEN` (an Uptime Kuma login token). A page whose secret is missing says
+   `GITHUB_TOKEN`, `GITEA_TOKEN`, `UNIFI_API_KEY`, `KUMA_TOKEN` (an Uptime Kuma login token),
+   `PIHOLE_PASSWORDS` (JSON map of Pi-hole target id to a Pi-hole app password, which logs in without TOTP). A page whose secret is missing says
    "Not set up yet" rather than failing.
 4. **Deploy** with `wrangler deploy`, after creating the D1 database and KV
    namespace and applying migrations. `.github/workflows/deploy.yml` shows how
@@ -172,6 +174,7 @@ ARGOCD_TOKEN=…
 UNIFI_API_KEY=…
 KUMA_TOKEN=…
 GITEA_TOKEN=…
+PIHOLE_PASSWORDS='{"dns7":"<app password>"}'
 ```
 
 Then run with a Cloudflare token that can bind VPC Services (the bindings are

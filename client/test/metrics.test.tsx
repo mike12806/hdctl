@@ -11,8 +11,7 @@ const overview = (): MetricsOverview => ({
     error: null,
   },
   workloads: { data: { podsRunning: 306, podsTotal: 337, problems: [], restarts: [] }, error: null },
-  volumes: { data: { count: 1, fullest: [{ namespace: "harbor", claim: "data-harbor-trivy-0", used: 0.82, capacity: 5e9 }] }, error: null },
-  dns: { data: null, error: "Prometheus: parse error" },
+  volumes: { data: null, error: "Prometheus: parse error" },
   scrape: { data: { total: 113, down: [] }, error: null },
 });
 
@@ -22,12 +21,13 @@ describe("Metrics page", () => {
     render(<MetricsPage />);
     expect(await screen.findByText("Nothing is firing.")).toBeTruthy();
 
-    const dns = screen.getByText("DNS").closest("section")!;
-    expect(dns.querySelector("[role=alert]")?.textContent).toContain("Prometheus: parse error");
-    expect(dns.querySelector("table")).toBeNull();
+    const storage = screen.getByText("Storage").closest("section")!;
+    expect(storage.querySelector("[role=alert]")?.textContent).toContain("Prometheus: parse error");
+    expect(storage.querySelector("ul")).toBeNull();
 
     expect(screen.getByText("pve4")).toBeTruthy();
     expect(screen.queryByText("Network")).toBeNull(); // on the UniFi page, from the UDM's own API
+    expect(screen.queryByText("DNS")).toBeNull(); // on the DNS page, from each Pi-hole's own API
     expect(screen.getByText("All 113 targets are up.")).toBeTruthy();
   });
 

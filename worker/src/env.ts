@@ -21,6 +21,8 @@ export interface Env {
   GITEA_TOKEN?: string;
   /** An Uptime Kuma login token (the JWT its web UI keeps), for Kuma's Socket.IO API. */
   KUMA_TOKEN?: string;
+  /** Pi-hole app passwords, JSON keyed by target id ({"dns7": "..."}), for each Pi-hole's own API. */
+  PIHOLE_PASSWORDS?: string;
   /** The Durable Object that holds the one live connection to Uptime Kuma. */
   KUMA_LIVE: DurableObjectNamespace;
 

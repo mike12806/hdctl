@@ -1,4 +1,4 @@
-import { api, type Alert, type Machine, type MetricsOverview, type PiHole, type Volumes, type Workloads } from "../api";
+import { api, type Alert, type Machine, type MetricsOverview, type Volumes, type Workloads } from "../api";
 import { ago, bytes, duration, num, pct } from "../format";
 import { useNow, usePoll } from "../hooks";
 import { AsOf, Block, Dot, ErrorNote, Loading, Meter, Ok, PageHeader, Pill, type Tone } from "../components/ui";
@@ -6,7 +6,8 @@ import { AsOf, Block, Dot, ErrorNote, Loading, Meter, Ok, PageHeader, Pill, type
 /**
  * The lab as Prometheus and Alertmanager see it, asked live on every refresh.
  * Each section shows its own data or its own error, never an older answer.
- * The network has its own page (UniFi), straight from the UDM's API.
+ * The network and DNS have their own pages (UniFi, DNS), straight from the
+ * UDM's and the Pi-holes' own APIs.
  */
 export function MetricsPage() {
   const { data, fetchedAt, error, loading, reload, intervalMs } = usePoll(() => api<MetricsOverview>("/api/metrics"), 30_000);
@@ -43,9 +44,6 @@ export function MetricsPage() {
           </Block>
           <Block title="Storage" section={data.volumes}>
             {(v) => <VolumesView v={v} />}
-          </Block>
-          <Block title="DNS" section={data.dns}>
-            {(d) => <Dns hosts={d} />}
           </Block>
           <Block title="Scrape targets" section={data.scrape}>
             {(s) =>
@@ -211,42 +209,5 @@ function VolumesView({ v }: { v: Volumes }) {
         ))}
       </ul>
     </>
-  );
-}
-
-function Dns({ hosts }: { hosts: PiHole[] }) {
-  return (
-    <div className="table-wrap">
-      <table className="table table-stack">
-        <thead>
-          <tr>
-            <th>Pi-hole</th>
-            <th>Blocking</th>
-            <th>Queries today</th>
-            <th>Blocked</th>
-            <th>Clients</th>
-          </tr>
-        </thead>
-        <tbody>
-          {hosts.map((h) => (
-            <tr key={h.host}>
-              <td className="cell-main mono strong">{h.host}</td>
-              <td>
-                {h.enabled === null ? <Pill tone="muted">unknown</Pill> : <Pill tone={h.enabled ? "good" : "bad"}>{h.enabled ? "on" : "off"}</Pill>}
-              </td>
-              <td className="mono small" data-label="queries">
-                {num(h.queriesToday)}
-              </td>
-              <td className="mono small" data-label="blocked">
-                {num(h.blockedToday)} ({h.blockedPercent !== null ? `${h.blockedPercent.toFixed(1)}%` : "–"})
-              </td>
-              <td className="mono small" data-label="clients">
-                {num(h.clients)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }

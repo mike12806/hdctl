@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  DNS_QUERY,
   MACHINES_QUERY,
   SCRAPE_QUERY,
   VOLUMES_QUERY,
   WORKLOADS_QUERY,
   parseAlerts,
-  parseDns,
   parseMachines,
   parseVolumes,
   parseWorkloads,
@@ -89,22 +87,6 @@ describe("parseVolumes", () => {
   });
 });
 
-describe("parseDns", () => {
-  it("groups the exporter's series by Pi-hole", () => {
-    expect(
-      parseDns([
-        s({ __name__: "pihole_dns_queries_today", hostname: "dns9" }, 187010),
-        s({ __name__: "pihole_ads_percentage_today", hostname: "dns9" }, 5.07),
-        s({ __name__: "pihole_status", hostname: "dns9" }, 1),
-        s({ __name__: "pihole_status", hostname: "dns10" }, 0),
-      ]),
-    ).toEqual([
-      { host: "dns9", enabled: true, queriesToday: 187010, blockedToday: null, blockedPercent: 5.07, clients: null },
-      { host: "dns10", enabled: false, queriesToday: null, blockedToday: null, blockedPercent: null, clients: null },
-    ]);
-  });
-});
-
 describe("parseAlerts", () => {
   const alert = (labels: Record<string, string>, extra: Record<string, unknown> = {}) => ({
     labels,
@@ -148,7 +130,6 @@ describe("GET /api/metrics", () => {
       if (q === MACHINES_QUERY) return vector([{ metric: { m: "up", job: "node-exporter", instance: "n1:9796" }, value: [0, "1"] }]);
       if (q === WORKLOADS_QUERY) return vector([{ metric: { m: "running" }, value: [0, "306"] }]);
       if (q === VOLUMES_QUERY) return vector([]);
-      if (q === DNS_QUERY) return vector([{ metric: { __name__: "pihole_status", hostname: "dns9" }, value: [0, "1"] }]);
       if (q === SCRAPE_QUERY) return vector([{ metric: { m: "total" }, value: [0, "113"] }]);
       return Response.json({ status: "error", error: "unknown query" }, { status: 400 });
     }
@@ -162,13 +143,13 @@ describe("GET /api/metrics", () => {
     expect(body.machines).toMatchObject({ error: null, data: [{ instance: "n1:9796", up: true }] });
     expect(body.workloads).toMatchObject({ error: null, data: { podsRunning: 306 } });
     expect(body.network).toBeUndefined(); // the UDM's own API serves that now (/api/unifi)
-    expect(body.dns).toMatchObject({ error: null, data: [{ host: "dns9", enabled: true }] });
+    expect(body.dns).toBeUndefined(); // each Pi-hole's own API serves that now (/api/dns)
     expect(body.scrape).toMatchObject({ error: null, data: { total: 113, down: [] } });
-    expect(t.calls.filter((c) => c.target === "prometheus")).toHaveLength(5);
+    expect(t.calls.filter((c) => c.target === "prometheus")).toHaveLength(4);
     expect(t.calls.filter((c) => c.target === "alertmanager")).toHaveLength(1);
 
     await call(t.env, "/api/metrics");
-    expect(t.calls).toHaveLength(12); // nothing cached
+    expect(t.calls).toHaveLength(10); // nothing cached
   });
 
   it("shows Prometheus being down as an error in its sections, never older data, and keeps the alerts", async () => {
@@ -181,7 +162,7 @@ describe("GET /api/metrics", () => {
     const res = await call(t.env, "/api/metrics");
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, { data: unknown; error: string | null }>;
-    for (const name of ["machines", "workloads", "volumes", "dns", "scrape"]) {
+    for (const name of ["machines", "workloads", "volumes", "scrape"]) {
       expect(body[name], name).toEqual({ data: null, error: "connection refused" });
     }
     expect(body.alerts!.error).toBeNull();
@@ -190,12 +171,12 @@ describe("GET /api/metrics", () => {
   it("reports a PromQL error as that section's error", async () => {
     const t = testEnv({
       upstream: (target, req) =>
-        target.id === "prometheus" && new URL(req.url).searchParams.get("query") === DNS_QUERY
+        target.id === "prometheus" && new URL(req.url).searchParams.get("query") === VOLUMES_QUERY
           ? Response.json({ status: "error", error: "parse error" }, { status: 400 })
           : fakeMonitoring(target, req),
     });
     const body = (await (await call(t.env, "/api/metrics")).json()) as Record<string, { data: unknown; error: string | null }>;
-    expect(body.dns).toEqual({ data: null, error: "Prometheus: parse error" });
+    expect(body.volumes).toEqual({ data: null, error: "Prometheus: parse error" });
     expect(body.scrape!.error).toBeNull();
   });
 });
