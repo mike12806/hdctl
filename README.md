@@ -150,7 +150,9 @@ To adapt hdctl to another lab:
 3. **Secrets.** Each integration reads its own credential:
    `ARGOCD_TOKEN`, `PVE_TOKENS` (JSON map of host to Proxmox API token),
    `GITHUB_TOKEN`, `GITEA_TOKEN`, `UNIFI_API_KEY`, `KUMA_TOKEN` (an Uptime Kuma login token),
-   `PIHOLE_PASSWORDS` (JSON map of Pi-hole target id to a Pi-hole app password, which logs in without TOTP). A page whose secret is missing says
+   `PIHOLE_PASSWORDS` (JSON map of Pi-hole target id to a Pi-hole app password, which logs in without TOTP;
+   the deploy reads them from Vault `kv/github/hdctl/pihole`, a copy of `kv/kubernetes/pihole-proxy/pihole-exporter` with the same keys,
+   so changing a Pi-hole app password means updating both entries). A page whose secret is missing says
    "Not set up yet" rather than failing.
 4. **Deploy** with `wrangler deploy`, after creating the D1 database and KV
    namespace and applying migrations. `.github/workflows/deploy.yml` shows how
