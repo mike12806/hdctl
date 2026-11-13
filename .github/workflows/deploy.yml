@@ -66,6 +66,12 @@ jobs:
             kv/data/github/hdctl/unifi UNIFI_API_KEY | UNIFI_API_KEY ;
             kv/data/github/hdctl/kuma KUMA_TOKEN | KUMA_TOKEN ;
             kv/data/github/hdctl/gitea GITEA_TOKEN | GITEA_TOKEN ;
+            kv/data/github/hdctl/pihole dns7 | PIHOLE_DNS7 ;
+            kv/data/github/hdctl/pihole dns8 | PIHOLE_DNS8 ;
+            kv/data/github/hdctl/pihole dns9 | PIHOLE_DNS9 ;
+            kv/data/github/hdctl/pihole dns10 | PIHOLE_DNS10 ;
+            kv/data/github/hdctl/pihole k8s-dns | PIHOLE_K8S_DNS ;
+            kv/data/github/hdctl/pihole k8s-dns2 | PIHOLE_K8S_DNS2 ;
             kv/data/ci/github GH_HDC_PAT | HDCTL_GITHUB_TOKEN ;
             kv/data/ci/proxmox PVE_TOKEN_ID | PVE_TOKEN_ID ;
             kv/data/ci/proxmox PVE_SECRET | PVE_SECRET ;
@@ -165,6 +171,13 @@ jobs:
             --arg pve7 "$PVE7_TOKEN_ID=$PVE7_SECRET" \
             '{pve: $pve, pve2: $pve2, pve3: $pve3, pve4: $pve4, pve5: $pve5, pve6: $pve6, pve7: $pve7}')
           echo "::add-mask::$PVE_TOKENS"
+          # Pi-hole app passwords (Settings > Web interface / API > app password),
+          # which log in without TOTP. Keys are the hdctl target ids.
+          PIHOLE_PASSWORDS=$(jq -cn \
+            --arg dns7 "$PIHOLE_DNS7" --arg dns8 "$PIHOLE_DNS8" --arg dns9 "$PIHOLE_DNS9" \
+            --arg dns10 "$PIHOLE_DNS10" --arg k8sdns "$PIHOLE_K8S_DNS" --arg k8sdns2 "$PIHOLE_K8S_DNS2" \
+            '{dns7: $dns7, dns8: $dns8, dns9: $dns9, dns10: $dns10, "k8s-dns": $k8sdns, "k8s-dns2": $k8sdns2} | with_entries(select(.value != ""))')
+          echo "::add-mask::$PIHOLE_PASSWORDS"
           jq -n \
             --arg ARGOCD_TOKEN "$ARGOCD_TOKEN" \
             --arg PVE_TOKENS "$PVE_TOKENS" \
@@ -172,9 +185,10 @@ jobs:
             --arg UNIFI_API_KEY "$UNIFI_API_KEY" \
             --arg KUMA_TOKEN "$KUMA_TOKEN" \
             --arg GITEA_TOKEN "$GITEA_TOKEN" \
-            '{ARGOCD_TOKEN: $ARGOCD_TOKEN, PVE_TOKENS: $PVE_TOKENS, GITHUB_TOKEN: $GITHUB_TOKEN, UNIFI_API_KEY: $UNIFI_API_KEY, KUMA_TOKEN: $KUMA_TOKEN, GITEA_TOKEN: $GITEA_TOKEN} | with_entries(select(.value != ""))' \
+            --arg PIHOLE_PASSWORDS "$PIHOLE_PASSWORDS" \
+            '{ARGOCD_TOKEN: $ARGOCD_TOKEN, PVE_TOKENS: $PVE_TOKENS, GITHUB_TOKEN: $GITHUB_TOKEN, UNIFI_API_KEY: $UNIFI_API_KEY, KUMA_TOKEN: $KUMA_TOKEN, GITEA_TOKEN: $GITEA_TOKEN, PIHOLE_PASSWORDS: $PIHOLE_PASSWORDS} | with_entries(select(.value != "" and .value != "{}"))' \
             > "$RUNNER_TEMP/secrets.json"
-          for k in ARGOCD_TOKEN PVE_TOKENS GITHUB_TOKEN UNIFI_API_KEY KUMA_TOKEN GITEA_TOKEN; do
+          for k in ARGOCD_TOKEN PVE_TOKENS GITHUB_TOKEN UNIFI_API_KEY KUMA_TOKEN GITEA_TOKEN PIHOLE_PASSWORDS; do
             jq -e --arg k "$k" 'has($k)' "$RUNNER_TEMP/secrets.json" >/dev/null || echo "::warning::$k is empty in Vault; that panel will show a setup note"
           done
           npx wrangler secret bulk "$RUNNER_TEMP/secrets.json"

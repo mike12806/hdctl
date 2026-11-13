@@ -184,6 +184,36 @@ service_id = "01a1c0df-b3d5-7973-87ba-52bb8639e2f3"
 remote = true
 
 [[vpc_services]]
+binding = "PIHOLE_DNS7"
+service_id = "01a1d622-a49b-7060-8750-eea181ddfc6e"
+remote = true
+
+[[vpc_services]]
+binding = "PIHOLE_DNS8"
+service_id = "01a1d622-ab16-74f3-8e37-57b2a452eb23"
+remote = true
+
+[[vpc_services]]
+binding = "PIHOLE_DNS9"
+service_id = "01a1d622-b2f3-7103-a900-d3b365e38e8d"
+remote = true
+
+[[vpc_services]]
+binding = "PIHOLE_DNS10"
+service_id = "01a1d622-ba95-7c72-a7a2-6720d809efab"
+remote = true
+
+[[vpc_services]]
+binding = "PIHOLE_K8S_DNS"
+service_id = "01a1d622-c38f-7d62-95fd-736aa1ef6972"
+remote = true
+
+[[vpc_services]]
+binding = "PIHOLE_K8S_DNS2"
+service_id = "01a1d622-ca4d-7710-b0fd-c0c304be8f37"
+remote = true
+
+[[vpc_services]]
 binding = "HOMEASSISTANT"
 service_id = "01a1b8ad-a19f-7511-a725-40169d5d1aff"
 remote = true

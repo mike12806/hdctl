@@ -1,7 +1,7 @@
 import catalog from "../../infra/targets.json";
 import type { Env } from "./env";
 
-export type TargetGroup = "proxmox" | "vault" | "backup" | "storage" | "network" | "apps" | "cluster";
+export type TargetGroup = "proxmox" | "vault" | "backup" | "storage" | "network" | "dns" | "apps" | "cluster";
 
 export interface Target {
   id: string;
@@ -29,6 +29,7 @@ export const GROUP_LABELS: Record<TargetGroup, string> = {
   backup: "Backup",
   storage: "Storage",
   network: "Network",
+  dns: "DNS (Pi-hole)",
   apps: "Apps (off-cluster)",
   cluster: "Cluster apps",
 };

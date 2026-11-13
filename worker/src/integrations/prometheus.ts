@@ -9,7 +9,7 @@ import { UpstreamError } from "../errors";
  * Every request asks both, live: Prometheus sends no validators, so there is
  * nothing a cache could safely revalidate. Each page section is one PromQL
  * query (sub-expressions tagged with an `m` label and joined with `or`), so a
- * refresh is five Prometheus calls plus one to Alertmanager. A section whose
+ * refresh is four Prometheus calls plus one to Alertmanager. A section whose
  * query fails comes back as its error with no data; the others still render.
  */
 
@@ -199,39 +199,6 @@ export function parseVolumes(samples: Sample[]): Volumes {
   return { count: used.size, fullest };
 }
 
-// --- DNS: the Pi-holes, through pihole-exporter ---------------------------------------
-
-export const DNS_QUERY = `{__name__=~"pihole_(dns_queries_today|ads_blocked_today|ads_percentage_today|status|unique_clients)"}`;
-
-export interface PiHole {
-  host: string;
-  enabled: boolean | null;
-  queriesToday: number | null;
-  blockedToday: number | null;
-  blockedPercent: number | null;
-  clients: number | null;
-}
-
-export function parseDns(samples: Sample[]): PiHole[] {
-  const hosts = new Map<string, Record<string, number>>();
-  for (const s of samples) {
-    const host = s.metric.hostname ?? s.metric.instance ?? "?";
-    const values = hosts.get(host) ?? {};
-    values[(s.metric.__name__ ?? "").replace(/^pihole_/, "")] = s.value;
-    hosts.set(host, values);
-  }
-  return [...hosts.entries()]
-    .map(([host, v]) => ({
-      host,
-      enabled: v.status === undefined ? null : v.status === 1,
-      queriesToday: finite(v.dns_queries_today),
-      blockedToday: finite(v.ads_blocked_today),
-      blockedPercent: finite(v.ads_percentage_today),
-      clients: finite(v.unique_clients),
-    }))
-    .sort((a, b) => natural(a.host, b.host));
-}
-
 // --- Scrape targets ---------------------------------------------------------------
 
 export const SCRAPE_QUERY = [tag("down", `up == 0`), tag("total", `count(up)`)].join(" or ");
@@ -314,14 +281,14 @@ async function alertmanagerAlerts(env: Env): Promise<Alert[]> {
 
 export async function overview(env: Env) {
   const q = <T>(expr: string, parse: (s: Sample[]) => T) => section(async () => parse(await query(env, expr)));
-  // The network isn't here: it comes from the UDM's own API (integrations/unifi.ts), not unpoller.
-  const [alerts, machines, workloads, volumes, dns, scrape] = await Promise.all([
+  // The network and DNS aren't here: they come from the UDM's and the Pi-holes'
+  // own APIs (integrations/unifi.ts, integrations/pihole.ts), not unpoller or pihole-exporter.
+  const [alerts, machines, workloads, volumes, scrape] = await Promise.all([
     section(() => alertmanagerAlerts(env)),
     q(MACHINES_QUERY, parseMachines),
     q(WORKLOADS_QUERY, parseWorkloads),
     q(VOLUMES_QUERY, parseVolumes),
-    q(DNS_QUERY, parseDns),
     q(SCRAPE_QUERY, parseScrape),
   ]);
-  return { asOf: Date.now(), alerts, machines, workloads, volumes, dns, scrape };
+  return { asOf: Date.now(), alerts, machines, workloads, volumes, scrape };
 }

@@ -237,13 +237,23 @@ export interface Volumes {
   fullest: { namespace: string; claim: string; used: number; capacity: number | null }[];
 }
 
+// --- /api/dns: each Pi-hole's own API ---------------------------------------------
+
 export interface PiHole {
   host: string;
+  link: string | null;
+  /** Why this Pi-hole has no numbers; never set together with them. */
+  error: string | null;
   enabled: boolean | null;
   queriesToday: number | null;
   blockedToday: number | null;
   blockedPercent: number | null;
   clients: number | null;
+}
+
+export interface DnsOverview {
+  asOf: number;
+  hosts: PiHole[];
 }
 
 export interface MetricsOverview {
@@ -252,7 +262,6 @@ export interface MetricsOverview {
   machines: Section<Machine[]>;
   workloads: Section<Workloads>;
   volumes: Section<Volumes>;
-  dns: Section<PiHole[]>;
   scrape: Section<{ total: number | null; down: { job: string; instance: string }[] }>;
 }
 
