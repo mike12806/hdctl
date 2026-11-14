@@ -12,7 +12,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply hdctl-db --remote"
   },
   "dependencies": {
-    "hono": "4.13.17",
+    "hono": "4.13.18",
     "yaml": "2.9.1"
   },
   "devDependencies": {
