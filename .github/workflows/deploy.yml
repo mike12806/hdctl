@@ -56,7 +56,7 @@ jobs:
           fi
 
       - name: Read secrets from Vault
-        uses: mike12806/public-jobs/.github/actions/vault-secrets@29737112a6072c8f5a694e4a8a650ef98e80486e # main
+        uses: mike12806/public-jobs/.github/actions/vault-secrets@8cb4d92fb936163191984d02d0aee15e41a5e4c8 # main
         with:
           role: hdctl-deploy
           hostname: github-hdctl-deploy
