@@ -13,8 +13,16 @@ describe("target catalog", () => {
     for (const t of TARGETS) expect(t.serviceId, t.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it("reaches every non-cluster target by IP, so no internal DNS is involved", () => {
-    for (const t of TARGETS.filter((t) => t.group !== "cluster")) expect(t.address.ipv4, t.id).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+  // The lab's DNS is never involved. Names are allowed only where the
+  // connector resolves them without it: a cluster Service (cluster DNS, like
+  // the "cluster" group), or a container next to a host's own tunnel
+  // (Docker's DNS on that compose network).
+  it("reaches every non-cluster target by IP, a cluster Service, or a name on its own host's tunnel", () => {
+    for (const t of TARGETS.filter((t) => t.group !== "cluster")) {
+      if (t.address.ipv4) expect(t.address.ipv4, t.id).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+      else if (t.tunnelId) expect(t.address.hostname, t.id).toMatch(/^[a-z0-9-]+$/);
+      else expect(t.address.hostname, t.id).toMatch(/\.svc\.cluster\.local$/);
+    }
   });
 });
 
