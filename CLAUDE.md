@@ -26,7 +26,10 @@ revalidated against the source).
   certificate, give it one Workers VPC trusts (public CA or Cloudflare Origin
   CA); never turn verification off.
 - Off-cluster targets are pinned by IP, not through the cluster gateway or
-  internal DNS.
+  internal DNS. A host that runs its own cloudflared can instead be reached
+  through that tunnel (a target `tunnelId`), by its container name on the
+  compose network. In-cluster apps go to their Service, never a Multus/macvlan
+  address (unreachable from the node it runs on).
 - Tests: `npm test` (no network or credentials). Each integration has worker
   tests against a fake upstream that records every call, and the client page
   has a jsdom test. `npm run typecheck`, and `npm run vpc:check` after

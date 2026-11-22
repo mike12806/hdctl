@@ -12,6 +12,8 @@ export interface Target {
   binding: string;
   service: string;
   serviceId?: string;
+  /** The tunnel its VPC Service rides, when not the shared one (infra/targets.json tunnelId). */
+  tunnelId?: string;
   address: { ipv4?: string; hostname?: string };
   scheme: "http" | "https";
   port: number;

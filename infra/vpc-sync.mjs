@@ -43,7 +43,8 @@ function existingServices() {
 }
 
 function createArgs(t) {
-  const args = ["vpc", "service", "create", t.service, "--type", "http", "--tunnel-id", catalog.tunnelId];
+  // A target may ride its own host's tunnel instead of the shared one.
+  const args = ["vpc", "service", "create", t.service, "--type", "http", "--tunnel-id", t.tunnelId ?? catalog.tunnelId];
   if (t.address.ipv4) args.push("--ipv4", t.address.ipv4);
   else if (t.address.hostname) args.push("--hostname", t.address.hostname);
   else throw new Error(`${t.id}: address needs ipv4 or hostname`);

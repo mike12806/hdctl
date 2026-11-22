@@ -133,14 +133,18 @@ describe("GET /api/dns", () => {
     expect(t.calls).toEqual([]);
   });
 
-  it("reaches every Pi-hole by IP over verified HTTPS, never plain HTTP", () => {
-    expect(PIHOLES.map((p) => [p.id, p.address.ipv4, p.scheme])).toEqual([
-      ["dns7", "192.168.9.3", "https"],
-      ["dns8", "192.168.9.7", "https"],
-      ["dns9", "100.126.20.101", "https"],
-      ["dns10", "100.107.88.15", "https"],
-      ["k8s-dns", "192.168.1.16", "https"],
-      ["k8s-dns2", "192.168.1.86", "https"],
+  // Plain HTTP only where nothing goes to a LAN address: dns9/dns10 through
+  // their own host's tunnel to the Pi-hole container next to it, the k8s ones
+  // through their in-cluster Service like every cluster target. dns7/dns8 by
+  // IP over verified HTTPS.
+  it("reaches each Pi-hole over verified HTTPS by IP, or over HTTP only inside its own host or the cluster", () => {
+    expect(PIHOLES.map((p) => [p.id, p.address.ipv4 ?? p.address.hostname, p.scheme, p.tunnelId ?? "shared"])).toEqual([
+      ["dns7", "192.168.9.3", "https", "shared"],
+      ["dns8", "192.168.9.7", "https", "shared"],
+      ["dns9", "pihole", "http", "71861341-ea94-4445-9d85-e36d12a7a7bb"],
+      ["dns10", "pihole", "http", "bc2ee780-919e-42c9-ac9f-6ba44d05d7db"],
+      ["k8s-dns", "pihole.pihole.svc.cluster.local", "http", "shared"],
+      ["k8s-dns2", "pihole.pihole-2.svc.cluster.local", "http", "shared"],
     ]);
   });
 });
