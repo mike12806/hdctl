@@ -21,21 +21,24 @@ interface FakeSub {
   unsubscribe: ReturnType<typeof vi.fn>;
 }
 
-function fakeBrowser(opts: { permission?: NotificationPermission; subscribed?: boolean; grant?: NotificationPermission; shown?: { data: unknown; close: () => void }[] } = {}) {
+function fakeBrowser(
+  opts: { permission?: NotificationPermission; subscribed?: boolean | Uint8Array; grant?: NotificationPermission; shown?: { data: unknown; close: () => void }[]; newEndpoint?: string } = {},
+) {
   const state: { sub: FakeSub | null } = { sub: null };
-  const makeSub = (key: ArrayBuffer | Uint8Array): FakeSub => ({
-    endpoint: ENDPOINT,
+  const makeSub = (key: ArrayBuffer | Uint8Array, endpoint = ENDPOINT): FakeSub => ({
+    endpoint,
     options: { applicationServerKey: key },
-    toJSON: () => ({ endpoint: ENDPOINT, keys: { p256dh: "p", auth: "a" } }),
+    toJSON: () => ({ endpoint, keys: { p256dh: "p", auth: "a" } }),
     unsubscribe: vi.fn(async () => {
       state.sub = null;
       return true;
     }),
   });
-  if (opts.subscribed) state.sub = makeSub(new Uint8Array([4, 1, 2]));
+  // `subscribed` as bytes: subscribed with that key rather than hdctl's.
+  if (opts.subscribed) state.sub = makeSub(opts.subscribed === true ? new Uint8Array([4, 1, 2]) : opts.subscribed);
   const pushManager = {
     getSubscription: vi.fn(async () => state.sub),
-    subscribe: vi.fn(async (o: { applicationServerKey: Uint8Array }) => (state.sub = makeSub(o.applicationServerKey))),
+    subscribe: vi.fn(async (o: { applicationServerKey: Uint8Array }) => (state.sub = makeSub(o.applicationServerKey, opts.newEndpoint))),
   };
   const reg = { pushManager, getNotifications: vi.fn(async () => opts.shown ?? []) };
   Object.defineProperty(navigator, "serviceWorker", {
@@ -144,7 +147,7 @@ describe("turning notifications on", () => {
     expect(screen.queryByRole("button", { name: "Turn on notifications" })).toBeNull();
   });
 
-  it("says it isn't set up while the VAPID keys aren't in Vault", async () => {
+  it("says it isn't set up until the deploy has created the VAPID keys", async () => {
     fakeBrowser();
     devices = { status: 503, body: { error: "VAPID keys aren't set.", setup: true } };
     renderPage();
@@ -191,6 +194,18 @@ describe("this device, once on", () => {
     fireEvent.change(screen.getByLabelText("Severity for Android · Chrome"), { target: { value: "critical" } });
     await act(() => Promise.resolve());
     expect(calls).toContainEqual({ method: "PATCH", path: "/api/notify/devices/5", body: { minSeverity: "critical" } });
+  });
+
+  it("notices it subscribed with an earlier key, and resubscribes keeping its preferences", async () => {
+    const b = fakeBrowser({ subscribed: new Uint8Array([4, 9, 9]), permission: "granted", newEndpoint: `${ENDPOINT}-2` });
+    devices = { publicKey: KEY, devices: [await thisDevice({ minSeverity: "critical" })] };
+    renderPage();
+    const old = b.state.sub!;
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on again" }));
+    await vi.waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/notify/devices")).toBe(true));
+    expect(old.unsubscribe).toHaveBeenCalled();
+    expect(b.pushManager.subscribe).toHaveBeenCalledWith({ userVisibleOnly: true, applicationServerKey: new Uint8Array([4, 1, 2]) });
+    expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({ subscription: { endpoint: `${ENDPOINT}-2` }, replaces: ENDPOINT });
   });
 
   it("won't uncheck a device's last source", async () => {

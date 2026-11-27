@@ -8,7 +8,8 @@ import { BadRequest, NotConfigured } from "../errors";
  *
  *  - VAPID (RFC 8292): an ES256 JWT that tells the push service this message
  *    comes from the server the browser subscribed to. Signed with hdctl's own
- *    keypair (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY, from Vault kv/github/hdctl/push).
+ *    keypair (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY, which the first deploy
+ *    generates: scripts/ensure-vapid-keys.mjs).
  *  - Payload encryption (RFC 8291, aes128gcm): a fresh ECDH exchange with the
  *    device's keys for every message, so the push service (Google, Apple,
  *    Mozilla, Microsoft) never sees what it carries.
@@ -175,7 +176,7 @@ export async function vapidJwt(audience: string, subject: string, publicKey: str
   const pub = base64UrlToBytes(publicKey);
   const key = await crypto.subtle.importKey(
     "jwk",
-    // The private key is stored as the JWK `d` value itself (base64url), which is what vapid-keys.mjs stores.
+    // The private key is stored as the JWK `d` value itself (base64url), which is what ensure-vapid-keys.mjs sets.
     { kty: "EC", crv: "P-256", d: privateKey, x: bytesToBase64Url(pub.slice(1, 33)), y: bytesToBase64Url(pub.slice(33, 65)), ext: true },
     { name: "ECDSA", namedCurve: "P-256" },
     false,
@@ -190,7 +191,7 @@ export async function vapidJwt(audience: string, subject: string, publicKey: str
 export function vapidPublicKey(env: Env): string {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
     throw new NotConfigured(
-      "VAPID keys aren't set. Run `npm run vapid-keys -w worker` once (it stores a new pair at Vault kv/github/hdctl/push), then re-run the deploy.",
+      "Push notifications' VAPID keys aren't set yet. The deploy creates them (scripts/ensure-vapid-keys.mjs); re-run it if this persists after one.",
     );
   }
   return env.VAPID_PUBLIC_KEY;

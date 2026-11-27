@@ -9,8 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate:local": "wrangler d1 migrations apply hdctl-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply hdctl-db --remote",
-    "vapid-keys": "node scripts/vapid-keys.mjs"
+    "db:migrate:remote": "wrangler d1 migrations apply hdctl-db --remote"
   },
   "dependencies": {
     "hono": "4.13.21",

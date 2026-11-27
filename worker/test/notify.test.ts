@@ -566,11 +566,11 @@ describe("the devices API", () => {
     expect(t.d1.query("SELECT * FROM push_subscriptions")).toEqual([]);
   });
 
-  it("says it isn't set up until the VAPID keys are in Vault", async () => {
+  it("says it isn't set up until the deploy has created the VAPID keys", async () => {
     const t = testEnv();
     const res = await call(t.env, "/api/notify/devices");
     expect(res.status).toBe(503);
-    expect(await res.json()).toMatchObject({ setup: true, error: expect.stringContaining("kv/github/hdctl/push") });
+    expect(await res.json()).toMatchObject({ setup: true, error: expect.stringContaining("ensure-vapid-keys.mjs") });
     expect((await call(t.env, "/api/notify/incidents")).status).toBe(200);
   });
 

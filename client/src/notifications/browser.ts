@@ -68,16 +68,20 @@ export async function subscribe(publicKey: string): Promise<PushSubscription> {
   await sw.register("/sw.js", { scope: "/", updateViaCache: "none" });
   const reg = await sw.ready;
   const existing = await reg.pushManager.getSubscription();
-  if (existing && sameKey(existing, publicKey)) return existing;
+  if (existing && keyMatches(existing.options?.applicationServerKey ?? null, publicKey)) return existing;
   // One made with an older key would never verify: replace it.
   if (existing) await existing.unsubscribe();
   return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
 }
 
-function sameKey(sub: PushSubscription, publicKey: string): boolean {
-  const key = sub.options?.applicationServerKey;
+/**
+ * Whether a subscription was made with hdctl's current key. One made with an
+ * earlier key is refused by the push service, so it needs subscribing again.
+ * A browser that doesn't report the key gets the benefit of the doubt.
+ */
+export function keyMatches(key: ArrayBuffer | ArrayBufferView | null, publicKey: string): boolean {
   if (!key) return true;
-  const a = new Uint8Array(key);
+  const a = ArrayBuffer.isView(key) ? new Uint8Array(key.buffer, key.byteOffset, key.byteLength) : new Uint8Array(key);
   const b = keyBytes(publicKey);
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }

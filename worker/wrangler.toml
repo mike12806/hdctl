@@ -99,8 +99,8 @@ BUILD_ID = "dev"
 #   UNIFI_API_KEY  UniFi OS API key for the UDM's Network application
 #   KUMA_TOKEN     Uptime Kuma login token (the JWT its web UI keeps)
 #   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
-#                  hdctl's Web Push keypair (npm run vapid-keys -w worker, once),
-#                  from Vault kv/github/hdctl/push
+#                  hdctl's Web Push keypair. Not from Vault: the first deploy
+#                  generates it (scripts/ensure-vapid-keys.mjs) and keeps it
 # For local dev, put them in worker/.dev.vars along with DEV_MODE=true.
 
 # Workers VPC: one pinned service per target in infra/targets.json.

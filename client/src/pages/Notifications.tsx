@@ -4,7 +4,7 @@ import { api, post, send, type Device, type Devices, type FeedStatus, type Incid
 import { ago, time } from "../format";
 import { useNow, usePoll } from "../hooks";
 import { AsOf, ConfirmDialog, Empty, ErrorNote, Loading, Ok, PageHeader, Pill, type Tone } from "../components/ui";
-import { currentSubscription, deviceLabel, endpointHash, permission, pushSupport, subscribe, unsubscribe } from "../notifications/browser";
+import { currentSubscription, deviceLabel, endpointHash, keyMatches, permission, pushSupport, subscribe, unsubscribe } from "../notifications/browser";
 import { useIncidentFeed } from "../notifications/feed";
 
 const SEVERITY_TONE: Record<NotifySeverity, Tone> = { critical: "bad", warning: "warn", info: "info" };
@@ -131,20 +131,35 @@ type DevicesPoll = ReturnType<typeof usePoll<Devices>>;
 
 function ThisDevice({ devices }: { devices: DevicesPoll }) {
   const support = useMemo(pushSupport, []);
-  const [local, setLocal] = useState<{ permission: NotificationPermission | "unsupported"; hash: string | null; checked: boolean }>({ permission: permission(), hash: null, checked: false });
+  const [local, setLocal] = useState<{
+    permission: NotificationPermission | "unsupported";
+    endpoint: string | null;
+    hash: string | null;
+    /** The key this browser subscribed with, if it says. */
+    key: ArrayBuffer | null;
+    checked: boolean;
+  }>({ permission: permission(), endpoint: null, hash: null, key: null, checked: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [note, setNote] = useState<string | null>(null);
 
   const refreshLocal = useCallback(async () => {
     const sub = await currentSubscription();
-    setLocal({ permission: permission(), hash: sub ? await endpointHash(sub.endpoint) : null, checked: true });
+    setLocal({
+      permission: permission(),
+      endpoint: sub?.endpoint ?? null,
+      hash: sub ? await endpointHash(sub.endpoint) : null,
+      key: sub?.options?.applicationServerKey ?? null,
+      checked: true,
+    });
   }, []);
   useEffect(() => {
     void refreshLocal();
   }, [refreshLocal]);
 
   const mine = devices.data?.devices.find((d) => d.endpointHash === local.hash) ?? null;
+  // Subscribed with a key the Worker no longer has (it lost its keypair): the push service refuses every push to it.
+  const staleKey = mine !== null && devices.data !== null && !keyMatches(local.key, devices.data.publicKey);
 
   async function act(what: () => Promise<string | null>) {
     setBusy(true);
@@ -163,8 +178,12 @@ function ThisDevice({ devices }: { devices: DevicesPoll }) {
   const turnOn = () =>
     act(async () => {
       const key = devices.data?.publicKey ?? (await api<Devices>("/api/notify/devices")).publicKey;
+      // Nothing awaited before subscribe(): iOS only asks for permission straight from the tap.
+      const before = local.endpoint;
       const sub = await subscribe(key);
-      const res = await post<{ confirmation: PushResult | null }>("/api/notify/devices", { subscription: sub.toJSON(), label: deviceLabel() });
+      // A new subscription in place of an old one (a new key) keeps the device's preferences.
+      const replaces = before && before !== sub.endpoint ? before : undefined;
+      const res = await post<{ confirmation: PushResult | null }>("/api/notify/devices", { subscription: sub.toJSON(), label: deviceLabel(), replaces });
       if (!res.confirmation) return "This device is registered again.";
       return res.confirmation.ok ? "Notifications are on. A confirmation is on its way to this device." : `Registered, but the push service refused the confirmation: ${res.confirmation.error}`;
     });
@@ -203,6 +222,15 @@ function ThisDevice({ devices }: { devices: DevicesPoll }) {
         <span>Notifications are off on this device.</span>
         <button className="btn btn-primary" onClick={() => void turnOn()} disabled={busy}>
           {busy ? "Turning on…" : "Turn on notifications"}
+        </button>
+      </div>
+    );
+  } else if (staleKey) {
+    body = (
+      <div className="device-state">
+        <span>This device subscribed with an earlier key, so the push service refuses hdctl&apos;s notifications to it. Turn them on again to resubscribe; its preferences stay.</span>
+        <button className="btn btn-primary" onClick={() => void turnOn()} disabled={busy}>
+          {busy ? "Turning on…" : "Turn on again"}
         </button>
       </div>
     );
