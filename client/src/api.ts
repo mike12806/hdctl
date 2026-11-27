@@ -368,7 +368,7 @@ export type LiveMessage =
 
 // --- /api/notify: push notifications ------------------------------------------------
 
-export type NotifySource = "endpoint" | "alert" | "argo" | "workflow";
+export type NotifySource = "endpoint" | "alert" | "argo" | "workflow" | "kuma" | "proxmox" | "network" | "dns";
 export type NotifySeverity = "critical" | "warning" | "info";
 
 /** One thing hdctl found wrong, as recorded (not live: the page it links to is). */

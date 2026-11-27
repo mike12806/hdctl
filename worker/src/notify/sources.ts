@@ -5,6 +5,11 @@ import { alertmanagerAlerts } from "../integrations/prometheus";
 import * as argo from "../integrations/argo";
 import * as github from "../integrations/github";
 import * as gitea from "../integrations/gitea";
+import * as pve from "../integrations/proxmox";
+import * as unifi from "../integrations/unifi";
+import * as pihole from "../integrations/pihole";
+import type { LiveMonitor, Snapshot } from "../integrations/kuma";
+import { UpstreamError } from "../errors";
 import type { Observation, Problem, Severity } from "./types";
 
 /**
@@ -15,6 +20,11 @@ import type { Observation, Problem, Severity } from "./types";
  *   argo      Argo CD's API: apps that are degraded or whose last sync failed
  *   github    GitHub's API: workflows whose latest run on the default branch failed
  *   gitea     Gitea's API: the same
+ *   kuma      Uptime Kuma's own (Socket.IO) API: monitors down, certificates expiring
+ *   proxmox   each Proxmox host's API: guests set to start at boot that aren't running
+ *   backup    the same API: nodes whose latest backup (vzdump) run failed
+ *   unifi     the UDM's own API: devices offline, WAN or internet trouble
+ *   pihole    each Pi-hole's own API: blocking switched off
  *
  * Each is a pure translation of that system's answer into problems, so the
  * rules (thresholds, grouping, what counts as recovered) are unit-tested here.
@@ -319,4 +329,320 @@ export async function observeGitea(env: Env): Promise<Observation | null> {
   const list = await gitea.repos(env);
   const runs = await gitea.recentRuns(env, 15, list);
   return workflowObservation("gitea", runs, new Map(list.map((r) => [r.full_name, r.default_branch])));
+}
+
+// --- Uptime Kuma ------------------------------------------------------------------
+
+/** A certificate this close to expiring wasn't renewed when it should have been (cert-manager renews at 30 days). */
+export const CERT_WARN_DAYS = 14;
+export const CERT_CRITICAL_DAYS = 3;
+
+/**
+ * Kuma's monitors as Kuma reports them. Told at once: Kuma has its own retries
+ * before it calls a monitor down. Group monitors are left out (their children
+ * are each reported), and so are paused ones. A TLS certificate that's
+ * invalid, or within CERT_WARN_DAYS of expiring, is its own incident.
+ */
+export function kumaObservation(monitors: LiveMonitor[]): Observation {
+  const byId = new Map(monitors.map((m) => [m.id, m]));
+  const link = (id: number) => `${targetById("kuma")?.link ?? "https://health.mfaherty.net"}/dashboard/${id}`;
+  const problems: Problem[] = [];
+  for (const m of monitors) {
+    if (m.type === "group" || m.status === "paused") continue;
+    if (m.status === "down") {
+      problems.push({
+        key: `kuma:${m.id}`,
+        source: "kuma",
+        severity: "critical",
+        subject: m.name,
+        title: clip(`${m.name} is down`, 120),
+        body: clip([m.msg, m.target].filter(Boolean).join(" · ") || "Down in Uptime Kuma.", 300),
+        url: "/uptime",
+        link: link(m.id),
+        threshold: 1,
+      });
+    }
+    const c = m.cert;
+    if (!c) continue;
+    const days = c.daysRemaining;
+    if (!c.valid || (days !== null && days <= CERT_WARN_DAYS)) {
+      problems.push({
+        key: `kuma:${m.id}:cert`,
+        source: "kuma",
+        severity: !c.valid || (days !== null && days <= CERT_CRITICAL_DAYS) ? "critical" : "warning",
+        subject: `${m.name}'s certificate`,
+        title: clip(!c.valid ? `Certificate invalid: ${m.name}` : `Certificate for ${m.name} expires in ${days} day${days === 1 ? "" : "s"}`, 120),
+        body: clip([m.target, c.validTo ? `valid to ${c.validTo.slice(0, 10)}` : null].filter(Boolean).join(" · ") || "From Uptime Kuma's TLS check.", 300),
+        url: "/uptime",
+        link: link(m.id),
+        threshold: 1,
+      });
+    }
+  }
+  return {
+    feed: "kuma",
+    source: "kuma",
+    prefix: "",
+    problems,
+    resolution(key) {
+      const match = /^kuma:(\d+)(:cert)?$/.exec(key);
+      if (!match) return null;
+      const m = byId.get(Number(match[1]));
+      if (!m || m.type === "group") return "no longer monitored";
+      if (m.status === "paused") return "paused in Uptime Kuma";
+      if (match[2]) {
+        const c = m.cert;
+        if (!c) return null;
+        return c.valid && (c.daysRemaining === null || c.daysRemaining > CERT_WARN_DAYS) ? `renewed${c.daysRemaining !== null ? ` (${c.daysRemaining} days left)` : ""}` : null;
+      }
+      if (m.status === "up") return "back up";
+      if (m.status === "maintenance") return "in maintenance";
+      return null; // pending (retrying) or unknown: not over yet
+    },
+  };
+}
+
+/** Through the KumaLive Durable Object, which reuses a tab's open connection or opens one briefly. */
+export async function observeKuma(env: Env): Promise<Observation | null> {
+  if (!env.KUMA_TOKEN) return null;
+  const res = await env.KUMA_LIVE.getByName("kuma").fetch("https://kuma/snapshot");
+  const body = (await res.json().catch(() => null)) as Snapshot | null;
+  if (!body || !("monitors" in body)) throw new UpstreamError(body && "error" in body ? body.error : `Uptime Kuma snapshot: HTTP ${res.status}`);
+  return kumaObservation(body.monitors);
+}
+
+// --- Proxmox guests ---------------------------------------------------------------------
+
+export interface GuestState {
+  host: { id: string; name: string; link: string | null; error: string | null };
+  guests: { node: string; vmid: number; type: "qemu" | "lxc"; name: string; status: string; startsAtBoot: boolean | null }[];
+}
+
+/** Two runs: a reboot passes through "stopped". */
+export const GUEST_THRESHOLD = 2;
+
+/**
+ * A guest set to start at boot that isn't running: it crashed, was killed,
+ * or was stopped and left that way. One that isn't set to start at boot is
+ * off on purpose. `startsAtBoot` is only read for guests that aren't running.
+ */
+export function guestObservation(hosts: GuestState[]): Observation {
+  const byKey = new Map<string, { host: GuestState["host"]; guest: GuestState["guests"][number] }>();
+  for (const h of hosts) for (const g of h.guests) byKey.set(`pve:${h.host.id}:${g.vmid}`, { host: h.host, guest: g });
+  const failed = hosts.filter((h) => h.host.error);
+  const problems: Problem[] = [];
+  for (const [key, { host, guest: g }] of byKey) {
+    if (g.status === "running" || g.startsAtBoot !== true) continue;
+    problems.push({
+      key,
+      source: "proxmox",
+      severity: "warning",
+      subject: `${g.name} (#${g.vmid})`,
+      title: clip(`${g.name} isn't running`, 120),
+      body: `${g.type === "qemu" ? "VM" : "Container"} ${g.vmid} on ${host.name} is ${g.status}, and it's set to start at boot.`,
+      url: "/proxmox",
+      link: host.link,
+      threshold: GUEST_THRESHOLD,
+    });
+  }
+  return {
+    feed: "proxmox",
+    source: "proxmox",
+    prefix: "pve:",
+    problems,
+    partial: failed.length ? failed.map((h) => `${h.host.id}: ${h.host.error}`).join("; ").slice(0, 300) : null,
+    resolution(key) {
+      const hostId = key.split(":")[1];
+      const host = hosts.find((h) => h.host.id === hostId);
+      if (!host) return "no longer monitored";
+      if (host.host.error) return null;
+      const g = byKey.get(key)?.guest;
+      if (!g) return `no longer on ${host.host.name}`;
+      if (g.status === "running") return "running again";
+      return g.startsAtBoot === false ? "no longer set to start at boot" : null;
+    },
+  };
+}
+
+export async function observeGuests(env: Env): Promise<Observation | null> {
+  if (!env.PVE_TOKENS) return null;
+  const hosts = await pve.overview(env);
+  const states = await Promise.all(
+    hosts.map(async (h): Promise<GuestState> => ({
+      host: { id: h.id, name: h.name, link: h.link, error: h.error },
+      guests: await Promise.all(
+        h.guests.map(async (g) => ({
+          node: g.node,
+          vmid: g.vmid,
+          type: g.type,
+          name: g.name,
+          status: g.status,
+          // Only asked of a guest that isn't running; a failed read is "can't say", not "no".
+          startsAtBoot: g.status === "running" ? null : await pve.guestStartsAtBoot(env, h.id, g.node, g.type, g.vmid).catch(() => null),
+        })),
+      ),
+    })),
+  );
+  return guestObservation(states);
+}
+
+// --- Proxmox backups --------------------------------------------------------------------
+
+const BACKUP_OK = (status: string) => status === "OK" || /^WARNINGS?:/i.test(status);
+
+/** A node whose latest backup run failed. Fixed when a later run succeeds. */
+export function backupObservation(hosts: pve.HostBackups[]): Observation {
+  const latest = new Map<string, { host: pve.HostBackups; run: { status: string; startedAt: number } | null }>();
+  for (const h of hosts) for (const n of h.nodes) latest.set(`backup:${h.id}:${n.node}`, { host: h, run: n.latest });
+  const problems: Problem[] = [];
+  for (const [key, { host, run }] of latest) {
+    if (!run || BACKUP_OK(run.status)) continue;
+    problems.push({
+      key,
+      source: "proxmox",
+      severity: "warning",
+      subject: `Backups on ${host.name}`,
+      title: `Backup failed on ${host.name}`,
+      body: clip(`The latest backup run (started ${new Date(run.startedAt).toISOString().slice(0, 16).replace("T", " ")} UTC) ended with: ${run.status}`, 300),
+      url: "/proxmox",
+      link: host.link,
+      threshold: 1,
+    });
+  }
+  const failed = hosts.filter((h) => h.error);
+  return {
+    feed: "backup",
+    source: "proxmox",
+    prefix: "backup:",
+    problems,
+    partial: failed.length ? failed.map((h) => `${h.id}: ${h.error}`).join("; ").slice(0, 300) : null,
+    resolution(key) {
+      const host = hosts.find((h) => h.id === key.split(":")[1]);
+      if (!host) return "no longer monitored";
+      if (host.error) return null;
+      const entry = latest.get(key);
+      if (!entry) return "node no longer there";
+      return entry.run && BACKUP_OK(entry.run.status) ? "the next backup run succeeded" : null;
+    },
+  };
+}
+
+export async function observeBackups(env: Env): Promise<Observation | null> {
+  if (!env.PVE_TOKENS) return null;
+  return backupObservation(await pve.latestBackups(env));
+}
+
+// --- UniFi ------------------------------------------------------------------------------
+
+const DEVICE_DOWN = new Set(["offline", "heartbeat missed", "isolated", "adoption failed"]);
+export const UNIFI_THRESHOLD = 2;
+
+/**
+ * From the UDM's own API: an adopted gateway, switch or access point that has
+ * dropped off, and the WAN or internet subsystem reporting trouble. A device
+ * upgrading or provisioning is neither down nor back yet.
+ */
+export function unifiObservation(devices: unifi.Device[], health: unifi.Health): Observation {
+  const byMac = new Map(devices.map((d) => [d.mac, d]));
+  const sub = new Map(health.subsystems.map((x) => [x.name, x.status]));
+  const problems: Problem[] = [];
+  for (const d of devices) {
+    if (!DEVICE_DOWN.has(d.state)) continue;
+    problems.push({
+      key: `unifi:${d.mac}`,
+      source: "network",
+      severity: d.kind === "ap" || d.kind === "other" ? "warning" : "critical",
+      subject: d.name,
+      title: clip(`${d.name} is ${d.state}`, 120),
+      body: clip([d.model, d.ip ?? d.mac].filter(Boolean).join(" · "), 300),
+      url: "/unifi",
+      link: targetById("unifi")?.link ?? null,
+      threshold: UNIFI_THRESHOLD,
+    });
+  }
+  const wan = sub.get("wan");
+  if (wan === "error" || wan === "warning") {
+    problems.push({
+      key: "unifi:wan",
+      source: "network",
+      severity: wan === "error" ? "critical" : "warning",
+      subject: "The WAN",
+      title: wan === "error" ? "WAN is down" : "WAN is degraded",
+      body: clip([health.wan.isp, health.wan.availability !== null ? `${health.wan.availability.toFixed(1)}% available` : null].filter(Boolean).join(" · ") || "As the UniFi gateway reports it.", 300),
+      url: "/unifi",
+      link: targetById("unifi")?.link ?? null,
+      threshold: UNIFI_THRESHOLD,
+    });
+  }
+  const www = sub.get("www");
+  if (www === "error" || www === "warning") {
+    problems.push({
+      key: "unifi:www",
+      source: "network",
+      severity: www === "error" ? "critical" : "warning",
+      subject: "The internet",
+      title: www === "error" ? "Internet is unreachable" : "Internet is degraded",
+      body: clip([health.internet.latencyMs !== null ? `${health.internet.latencyMs} ms latency` : null, health.internet.drops !== null ? `${health.internet.drops} drops` : null].filter(Boolean).join(" · ") || "As the UniFi gateway reports it.", 300),
+      url: "/unifi",
+      link: targetById("unifi")?.link ?? null,
+      threshold: UNIFI_THRESHOLD,
+    });
+  }
+  return {
+    feed: "unifi",
+    source: "network",
+    prefix: "unifi:",
+    problems,
+    resolution(key) {
+      if (key === "unifi:wan" || key === "unifi:www") return sub.get(key.slice(6)) === "ok" ? "back to normal" : null;
+      const d = byMac.get(key.slice(6));
+      if (!d) return "no longer adopted";
+      return d.online ? "back online" : null;
+    },
+  };
+}
+
+export async function observeUnifi(env: Env): Promise<Observation | null> {
+  if (!env.UNIFI_API_KEY) return null;
+  const [devices, health] = await Promise.all([unifi.network<Record<string, unknown>>(env, "stat/device"), unifi.network<Record<string, unknown>>(env, "stat/health")]);
+  return unifiObservation(unifi.parseDevices(devices), unifi.parseHealth(health));
+}
+
+// --- Pi-hole ----------------------------------------------------------------------------
+
+/** Read every ten minutes, so two reads is ten to twenty minutes off: past a "disable for 5 minutes". */
+export const PIHOLE_THRESHOLD = 2;
+
+export function piholeObservation(hosts: pihole.PiHole[]): Observation {
+  const byHost = new Map(hosts.map((h) => [h.host, h]));
+  const failed = hosts.filter((h) => h.error);
+  return {
+    feed: "pihole",
+    source: "dns",
+    prefix: "",
+    problems: hosts
+      .filter((h) => h.enabled === false)
+      .map((h) => ({
+        key: `dns:${h.host}`,
+        source: "dns" as const,
+        severity: "warning" as const,
+        subject: `Pi-hole ${h.host}`,
+        title: `Pi-hole ${h.host} isn't blocking`,
+        body: "Ad and tracker blocking is switched off.",
+        url: "/dns",
+        link: h.link,
+        threshold: PIHOLE_THRESHOLD,
+      })),
+    partial: failed.length ? failed.map((h) => `${h.host}: ${h.error}`).join("; ").slice(0, 300) : null,
+    resolution(key) {
+      const h = byHost.get(key.slice(4));
+      if (!h) return "no longer monitored";
+      return h.enabled === true ? "blocking again" : null;
+    },
+  };
+}
+
+export async function observePihole(env: Env): Promise<Observation | null> {
+  if (!env.PIHOLE_PASSWORDS) return null;
+  return piholeObservation((await pihole.overview(env)).hosts);
 }

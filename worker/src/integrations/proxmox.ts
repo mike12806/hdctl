@@ -137,3 +137,56 @@ export function parseGuestRef(ref: GuestRef): { host: Target; node: string; type
 export async function guestAction(env: Env, g: ReturnType<typeof parseGuestRef>): Promise<string> {
   return pve<string>(env, g.host, `/nodes/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}/status/${g.action}`, { method: "POST" });
 }
+
+// --- For notifications (src/notify/sources.ts) ----------------------------------------
+
+/** Whether a guest is set to start at boot: its config's `onboot`, which defaults to off. */
+export async function guestStartsAtBoot(env: Env, hostId: string, node: string, type: GuestType, vmid: number): Promise<boolean> {
+  const host = PVE_HOSTS.find((t) => t.id === hostId);
+  if (!host) throw new BadRequest(`unknown Proxmox host "${hostId}"`);
+  const config = await pve<{ onboot?: number | string }>(env, host, `/nodes/${encodeURIComponent(node)}/${type}/${vmid}/config`);
+  return Number(config.onboot ?? 0) === 1;
+}
+
+export interface HostBackups {
+  id: string;
+  name: string;
+  link: string | null;
+  error: string | null;
+  /** Each node's most recent finished backup (vzdump) run, if it has one in its task list. */
+  nodes: { node: string; latest: { status: string; startedAt: number } | null }[];
+}
+
+/**
+ * The latest finished backup run on every node, from each host's task list.
+ *
+ * A token sees only its own user's tasks unless it has Sys.Audit on the
+ * node, and backups run as whoever scheduled them, so without it the list is
+ * quietly empty: indistinguishable from "no failed backups". That is checked
+ * first, and reported as the host's error rather than read as good news.
+ */
+export async function latestBackups(env: Env): Promise<HostBackups[]> {
+  tokens(env);
+  return Promise.all(
+    PVE_HOSTS.map(async (host): Promise<HostBackups> => {
+      const base = { id: host.id, name: host.name, link: host.link ?? null };
+      try {
+        const nodes = (await pve<Resource[]>(env, host, "/cluster/resources?type=node")).filter((r) => r.type === "node");
+        const out: HostBackups["nodes"] = [];
+        for (const { node } of nodes) {
+          const path = `/nodes/${node}`;
+          const perms = await pve<Record<string, Record<string, number>>>(env, host, `/access/permissions?path=${encodeURIComponent(path)}`);
+          if (!perms[path]?.["Sys.Audit"]) throw new UpstreamError(`the API token can't see ${node}'s backup tasks (it needs Sys.Audit on ${path})`);
+          const tasks = await pve<{ status?: string; starttime?: number; endtime?: number }[]>(env, host, `/nodes/${encodeURIComponent(node)}/tasks?typefilter=vzdump&limit=20`);
+          const done = tasks
+            .filter((t) => typeof t.endtime === "number" && typeof t.status === "string" && typeof t.starttime === "number")
+            .sort((a, b) => b.starttime! - a.starttime!);
+          out.push({ node, latest: done[0] ? { status: done[0].status!, startedAt: done[0].starttime! * 1000 } : null });
+        }
+        return { ...base, error: null, nodes: out };
+      } catch (err) {
+        return { ...base, error: err instanceof Error ? err.message : String(err), nodes: [] };
+      }
+    }),
+  );
+}

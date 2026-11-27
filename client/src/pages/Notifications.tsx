@@ -13,8 +13,21 @@ const SOURCES: { id: NotifySource; label: string }[] = [
   { id: "alert", label: "Alertmanager alerts" },
   { id: "argo", label: "Argo CD apps degraded or failing to sync" },
   { id: "workflow", label: "Failed workflow runs on main (GitHub, Gitea)" },
+  { id: "kuma", label: "Uptime Kuma monitors down, certificates expiring" },
+  { id: "proxmox", label: "Proxmox guests not running, failed backups" },
+  { id: "network", label: "UniFi devices offline, WAN or internet trouble" },
+  { id: "dns", label: "Pi-hole blocking switched off" },
 ];
-const SOURCE_SHORT: Record<NotifySource, string> = { endpoint: "Endpoint", alert: "Alert", argo: "Argo CD", workflow: "Workflow" };
+const SOURCE_SHORT: Record<NotifySource, string> = {
+  endpoint: "Endpoint",
+  alert: "Alert",
+  argo: "Argo CD",
+  workflow: "Workflow",
+  kuma: "Uptime Kuma",
+  proxmox: "Proxmox",
+  network: "Network",
+  dns: "DNS",
+};
 const SEVERITY_CHOICE: { id: NotifySeverity; label: string }[] = [
   { id: "critical", label: "Critical only" },
   { id: "warning", label: "Warnings and critical" },
@@ -24,8 +37,13 @@ const FEEDS: Record<string, { label: string; every: number }> = {
   endpoint: { label: "Endpoints", every: 2 },
   alert: { label: "Alertmanager", every: 2 },
   argo: { label: "Argo CD", every: 2 },
+  kuma: { label: "Uptime Kuma", every: 2 },
+  proxmox: { label: "Proxmox guests", every: 2 },
+  unifi: { label: "UniFi", every: 2 },
   github: { label: "GitHub Actions", every: 10 },
   gitea: { label: "Gitea Actions", every: 10 },
+  backup: { label: "Backups", every: 10 },
+  pihole: { label: "Pi-hole", every: 10 },
 };
 const PAUSES = [
   { minutes: 60, label: "for 1 hour" },
@@ -117,9 +135,11 @@ export function NotificationsPage() {
 
       <p className="muted small how">
         Every two minutes hdctl checks its own probes of every endpoint (pushed after two failed checks in a row; a whole group down, or the whole lab,
-        is one notification), Alertmanager&apos;s firing alerts, and Argo CD apps that are degraded or failed to sync. Every ten minutes it checks for
-        workflows whose latest run on the default branch failed. A recovery replaces the alarm on your lock screen. <em>Acknowledge</em> stops it
-        escalating and takes it off your other devices; <em>Mute</em> holds every push about that one thing.
+        is one notification), Alertmanager&apos;s firing alerts, Argo CD apps that are degraded or failed to sync, Uptime Kuma&apos;s monitors and
+        certificates, Proxmox guests set to start at boot that aren&apos;t running, and UniFi devices, the WAN and the internet. Every ten minutes it
+        checks for workflows whose latest run on the default branch failed, failed backup runs, and Pi-holes that stopped blocking. A recovery
+        replaces the alarm on your lock screen. <em>Acknowledge</em> stops it escalating and takes it off your other devices; <em>Mute</em> holds
+        every push about that one thing.
       </p>
     </>
   );

@@ -116,6 +116,11 @@ feed what is wrong, each from its own system of record:
 | Alerts | Alertmanager's own API | A firing alert, at once (its rule's `for:` already waited). Severity from its label |
 | Argo CD | Argo CD's API | An app Degraded or Missing for two checks, or whose last sync Failed |
 | Workflows | GitHub's and Gitea's APIs, every 10 minutes | The latest finished run of a workflow on the repository's default branch failed: with gitops, main isn't deploying. Covers runs nobody gets an email for, like Renovate's auto-merges |
+| Uptime Kuma | Kuma's own API, through the same connection the Uptime page uses (opened briefly when no tab holds one) | A monitor down, at once (Kuma has already retried); a TLS certificate invalid or within 14 days of expiring (critical within 3). Group monitors and paused ones aren't reported |
+| Proxmox guests | Each Proxmox host's API | A VM or container set to start at boot that isn't running, for two checks. One that isn't set to start at boot is off on purpose |
+| Backups | Each Proxmox host's task list, every 10 minutes | A node's latest backup (vzdump) run failed; warnings count as success. Needs Sys.Audit on the node, without which the list quietly hides other users' tasks: that's reported as the feed's error, not read as "no failures" |
+| Network | The UDM's own API | An adopted gateway or switch (critical) or access point (warning) offline for two checks; the WAN or internet subsystem in warning or error |
+| DNS | Each Pi-hole's own API, every 10 minutes | Blocking switched off across two reads (ten to twenty minutes: longer than a "disable for 5 minutes") |
 
 What each device hears about is its own choice (feeds, minimum severity,
 recoveries), set on the Notifications page.
@@ -141,7 +146,12 @@ recoveries), set on the Notifications page.
   what it says is still true; one that says the subscription is gone (404/410)
   gets the device forgotten.
 - **Not hearing is not good news.** A feed that can't be read opens and
-  resolves nothing, and the page says which feed failed and since when.
+  resolves nothing, and the page says which feed failed and since when. So
+  does part of one (one Proxmox host, one Pi-hole): what it covers is held
+  as it was while the rest is still evaluated.
+- **What it can't tell you:** hdctl, Cloudflare or Access being down. Nothing
+  inside hdctl runs then; watch hdctl from outside it (an Uptime Kuma monitor
+  on hdctl, with Kuma's own notifications).
 - **End-to-end encrypted.** Push services (Apple, Google, Mozilla, Microsoft)
   only relay ciphertext (RFC 8291), and a subscription is only accepted at one
   of them, so a device can't make the Worker call anything else.

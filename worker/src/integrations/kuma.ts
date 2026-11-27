@@ -369,6 +369,9 @@ const SETUP =
 
 type Failure = { error: string; setup?: boolean; auth?: boolean };
 
+/** Every monitor as Kuma reports it right now, or why that can't be said. */
+export type Snapshot = { monitors: LiveMonitor[] } | { error: string; setup?: boolean };
+
 export class KumaHub {
   private viewers = new Set<Socketish>();
   private phase: "idle" | "connecting" | "ready" | "failed" = "idle";
@@ -380,8 +383,46 @@ export class KumaHub {
   private pending: Changes = { monitors: new Set(), removed: new Set(), incidents: [] };
   private timers: Partial<Record<"idle" | "retry" | "connect" | "watchdog" | "flush" | "alive", ReturnType<typeof setTimeout>>> = {};
   private watchdogMs = 45_000;
+  /** Snapshot requests waiting for the connection to be ready (or to fail). */
+  private waiters = new Set<(s: Snapshot) => void>();
 
   constructor(private opts: HubOptions) {}
+
+  /**
+   * Every monitor as Kuma reports it now, for the notifier's cron run
+   * (src/notify/sources.ts). The open connection answers if a tab holds one;
+   * otherwise one is opened for this, and closed IDLE_CLOSE_MS later, the
+   * same as after the last tab leaves. A connection that has failed and is
+   * waiting to retry answers with its failure rather than a wait.
+   */
+  snapshot(timeoutMs = CONNECT_TIMEOUT_MS): Promise<Snapshot> {
+    if (!this.opts.token) return Promise.resolve({ error: SETUP, setup: true });
+    if (this.phase === "ready" && this.state) {
+      this.idleIfAlone();
+      return Promise.resolve({ monitors: this.state.all() });
+    }
+    if (this.phase === "failed" && this.failure) return Promise.resolve({ error: this.failure.error });
+    return new Promise((resolve) => {
+      const done = (s: Snapshot) => {
+        clearTimeout(timer);
+        this.waiters.delete(done);
+        resolve(s);
+        this.idleIfAlone();
+      };
+      const timer = setTimeout(() => done({ error: `Uptime Kuma didn't answer within ${timeoutMs / 1000} s.` }), timeoutMs);
+      this.waiters.add(done);
+      if (this.phase === "idle") void this.start();
+    });
+  }
+
+  /** With no tab watching, close the connection a while after the last use, as removeViewer does. */
+  private idleIfAlone(): void {
+    if (!this.viewers.size && this.phase !== "idle" && this.timers.idle === undefined) this.timers.idle = setTimeout(() => this.stop(), IDLE_CLOSE_MS);
+  }
+
+  private answerWaiters(s: Snapshot): void {
+    for (const w of [...this.waiters]) w(s);
+  }
 
   get viewerCount() {
     return this.viewers.size;
@@ -474,6 +515,7 @@ export class KumaHub {
     this.clear("connect");
     this.pending = { monitors: new Set(), removed: new Set(), incidents: [] };
     this.broadcast({ type: "snapshot", asOf: Date.now(), monitors: this.state!.all(), incidents: this.state!.incidents });
+    this.answerWaiters({ monitors: this.state!.all() });
     this.armAlive();
   }
 
@@ -512,6 +554,7 @@ export class KumaHub {
     this.phase = "failed";
     this.failure = f;
     this.broadcast({ type: "error", error: f.error });
+    this.answerWaiters({ error: f.error });
     if (!this.viewers.size) {
       this.phase = "idle";
       return;
@@ -521,9 +564,12 @@ export class KumaHub {
   }
 
   private stop(): void {
+    this.answerWaiters({ error: "Uptime Kuma's connection was closed." });
     this.gen++;
     this.teardown();
     this.clear("retry");
+    // Forget the idle timer that brought us here, so the next snapshot can arm another.
+    this.clear("idle");
     this.phase = "idle";
     this.failure = null;
     this.attempts = 0;
@@ -595,6 +641,8 @@ export class KumaLive implements DurableObject {
   }
 
   async fetch(req: Request): Promise<Response> {
+    // The notifier's read (src/notify/sources.ts), from the Worker's cron: never reachable from outside.
+    if (new URL(req.url).pathname === "/snapshot") return Response.json(await this.hub.snapshot());
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("expected a WebSocket upgrade", { status: 426 });
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     server.accept();
