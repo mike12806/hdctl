@@ -198,6 +198,7 @@ app.get("/api/audit", async (c) => c.json(await recentAudit(c.env)));
 // None of this touches another system, so none of it is audited.
 const body = async (c: { req: { json(): Promise<unknown> } }) => ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
 app.get("/api/notify/incidents", async (c) => c.json(await incidents.feed(c.env)));
+app.post("/api/notify/incidents/ack", async (c) => c.json(await incidents.ackMany(c.env, who(c), (await body(c)).ids)));
 app.post("/api/notify/incidents/:id/ack", async (c) => c.json(await incidents.ack(c.env, who(c), incidents.parseId(c.req.param("id")))));
 app.post("/api/notify/incidents/:id/mute", async (c) =>
   c.json(await incidents.muteIncident(c.env, who(c), incidents.parseId(c.req.param("id")), incidents.parseMinutes((await body(c)).minutes))),

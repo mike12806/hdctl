@@ -217,6 +217,30 @@ export async function ack(env: Env, who: Identity, id: number, now = Date.now())
   return { incident: toIncident(await incident(env, id), []), open: await openCount(env) };
 }
 
+/** Most incidents one "Acknowledge all" covers: far more than are ever open at once. */
+const ACK_MANY_MAX = 1000;
+
+/**
+ * Acknowledge all at once: the incidents the page showed, by id, never "every
+ * open one now", so one raised between rendering the page and the tap isn't
+ * acknowledged unseen. Ids that are no longer open, were already
+ * acknowledged, or don't exist are skipped. The ids go in as one JSON
+ * parameter, since D1 caps the parameters a statement may bind.
+ */
+export async function ackMany(env: Env, who: Identity, raw: unknown, now = Date.now()) {
+  if (!Array.isArray(raw) || !raw.length || raw.length > ACK_MANY_MAX || raw.some((id) => !Number.isSafeInteger(id) || (id as number) <= 0)) {
+    throw new BadRequest(`ids must be a list of 1 to ${ACK_MANY_MAX} incident ids`);
+  }
+  const result = await env.DB.prepare(
+    `UPDATE incidents SET acked_at = ?1, acked_by = ?2
+      WHERE id IN (SELECT value FROM json_each(?3))
+        AND acked_at IS NULL AND resolved_at IS NULL AND notified_at IS NOT NULL`,
+  )
+    .bind(now, who.email, JSON.stringify([...new Set(raw as number[])]))
+    .run();
+  return { acked: result.meta?.changes ?? 0, open: await openCount(env) };
+}
+
 // --- The page ------------------------------------------------------------------------
 
 function toIncident(i: IncidentRow, mutes: MuteRow[]) {
