@@ -66,6 +66,8 @@ jobs:
             kv/data/github/hdctl/unifi UNIFI_API_KEY | UNIFI_API_KEY ;
             kv/data/github/hdctl/kuma KUMA_TOKEN | KUMA_TOKEN ;
             kv/data/github/hdctl/gitea GITEA_TOKEN | GITEA_TOKEN ;
+            kv/data/github/hdctl/push VAPID_PUBLIC_KEY | VAPID_PUBLIC_KEY ;
+            kv/data/github/hdctl/push VAPID_PRIVATE_KEY | VAPID_PRIVATE_KEY ;
             kv/data/github/hdctl/pihole dns7 | PIHOLE_DNS7 ;
             kv/data/github/hdctl/pihole dns8 | PIHOLE_DNS8 ;
             kv/data/github/hdctl/pihole dns9 | PIHOLE_DNS9 ;
@@ -156,6 +158,9 @@ jobs:
 
       # After the upload: secrets need the Worker to exist. Vault is the
       # source of truth, so rotating any of these is "update Vault, re-run".
+      # Except the VAPID pair (push notifications): every device's subscription
+      # is bound to its public key, so a new pair silently ends pushes to all of
+      # them until each turns notifications on again. Set it once.
       - name: Sync Worker secrets
         working-directory: worker
         run: |
@@ -186,9 +191,11 @@ jobs:
             --arg KUMA_TOKEN "$KUMA_TOKEN" \
             --arg GITEA_TOKEN "$GITEA_TOKEN" \
             --arg PIHOLE_PASSWORDS "$PIHOLE_PASSWORDS" \
-            '{ARGOCD_TOKEN: $ARGOCD_TOKEN, PVE_TOKENS: $PVE_TOKENS, GITHUB_TOKEN: $GITHUB_TOKEN, UNIFI_API_KEY: $UNIFI_API_KEY, KUMA_TOKEN: $KUMA_TOKEN, GITEA_TOKEN: $GITEA_TOKEN, PIHOLE_PASSWORDS: $PIHOLE_PASSWORDS} | with_entries(select(.value != "" and .value != "{}"))' \
+            --arg VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY" \
+            --arg VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY" \
+            '{ARGOCD_TOKEN: $ARGOCD_TOKEN, PVE_TOKENS: $PVE_TOKENS, GITHUB_TOKEN: $GITHUB_TOKEN, UNIFI_API_KEY: $UNIFI_API_KEY, KUMA_TOKEN: $KUMA_TOKEN, GITEA_TOKEN: $GITEA_TOKEN, PIHOLE_PASSWORDS: $PIHOLE_PASSWORDS, VAPID_PUBLIC_KEY: $VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY: $VAPID_PRIVATE_KEY} | with_entries(select(.value != "" and .value != "{}"))' \
             > "$RUNNER_TEMP/secrets.json"
-          for k in ARGOCD_TOKEN PVE_TOKENS GITHUB_TOKEN UNIFI_API_KEY KUMA_TOKEN GITEA_TOKEN PIHOLE_PASSWORDS; do
+          for k in ARGOCD_TOKEN PVE_TOKENS GITHUB_TOKEN UNIFI_API_KEY KUMA_TOKEN GITEA_TOKEN PIHOLE_PASSWORDS VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY; do
             jq -e --arg k "$k" 'has($k)' "$RUNNER_TEMP/secrets.json" >/dev/null || echo "::warning::$k is empty in Vault; that panel will show a setup note"
           done
           npx wrangler secret bulk "$RUNNER_TEMP/secrets.json"

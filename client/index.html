@@ -10,6 +10,11 @@
     <!-- iOS would otherwise turn IPs and ports (192.168.1.99:8006) into phone-number links. -->
     <meta name="format-detection" content="telephone=no" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- Installable (Add to Home Screen), which is what lets iOS deliver push notifications.
+         use-credentials: a manifest is fetched without cookies otherwise, and Access would refuse it. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="hdctl" />
     <title>hdctl</title>
   </head>
   <body>

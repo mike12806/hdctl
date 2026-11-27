@@ -256,6 +256,29 @@ p { margin: 0 0 0.75rem; }
 .ports .list { margin-top: 6px; }
 .port-item { align-items: center; }
 
+/* --- Notifications ------------------------------------------------------------- */
+.tab-count { display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; font-family: var(--mono); }
+.device-state { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
+.device-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.device { align-items: flex-start; }
+.prefs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.prefs-sources { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 16px; }
+.prefs-sources legend { padding: 0; margin-bottom: 2px; }
+.prefs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.feeds { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 10px; }
+.feed { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); }
+.feed-error { margin-bottom: 8px; }
+.incident { align-items: flex-start; }
+.incident > .pill { margin-top: 2px; }
+.incident-acked { opacity: 0.75; }
+.how { max-width: 80ch; margin-top: 8px; }
+@media (max-width: 700px) {
+  .incident, .device { flex-wrap: wrap; }
+  .incident .row-actions, .device .row-actions { width: 100%; display: flex; gap: 8px; text-align: left; }
+  .incident .row-actions .btn, .device .row-actions .btn { flex: 1; margin-left: 0; }
+  .tab-count { margin-left: 4px; }
+}
+
 /* --- Dialog ------------------------------------------------------------------ */
 .dialog {
   width: min(520px, calc(100vw - 32px)); padding: 22px; border-radius: 14px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text);

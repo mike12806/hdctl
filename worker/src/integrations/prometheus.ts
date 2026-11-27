@@ -220,6 +220,8 @@ export function parseScrape(samples: Sample[]): Scrape {
 // --- Alerts, from Alertmanager --------------------------------------------------------
 
 export interface Alert {
+  /** Alertmanager's id for the alert's label set: the same alert keeps it while it fires. */
+  fingerprint: string;
   name: string;
   severity: string;
   /** firing, or held back by a silence or an inhibition rule. */
@@ -231,6 +233,7 @@ export interface Alert {
 }
 
 interface AmAlert {
+  fingerprint?: string;
   labels: Record<string, string>;
   annotations?: Record<string, string>;
   startsAt: string;
@@ -254,6 +257,7 @@ export function parseAlerts(alerts: AmAlert[]): Alert[] {
       // Rancher's rules end with "on cluster {{ $labels.cluster }}", and there's no cluster label.
       const tidy = (s: string | undefined) => (s ? s.replace(/\s+on cluster\s*\.?\s*$/, ".") : null);
       return {
+        fingerprint: a.fingerprint ?? Object.entries(l).sort().map(([k, v]) => `${k}=${v}`).join(","),
         name: l.alertname ?? "alert",
         severity: l.severity ?? "none",
         state,
@@ -271,7 +275,8 @@ export function parseAlerts(alerts: AmAlert[]): Alert[] {
     );
 }
 
-async function alertmanagerAlerts(env: Env): Promise<Alert[]> {
+/** Every active alert, silenced and inhibited ones included (marked as such). */
+export async function alertmanagerAlerts(env: Env): Promise<Alert[]> {
   const res = await targetFetch(env, ALERTMANAGER, "/api/v2/alerts?active=true", { headers: { Accept: "application/json" } }, TIMEOUT_MS);
   if (!res.ok) throw new UpstreamError(`Alertmanager: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
   return parseAlerts((await res.json()) as AmAlert[]);

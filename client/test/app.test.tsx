@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/reload", () => ({ reloadPage: vi.fn() }));
 
 import { reloadPage } from "../src/reload";
-import { NEW_BUILD_EVENT, type StatusSummary } from "../src/api";
+import { NEW_BUILD_EVENT, type IncidentFeed, type NotifyIncident, type StatusSummary } from "../src/api";
 import { App } from "../src/App";
 import { StatusPage } from "../src/pages/Status";
 import { FakeWebSocket, monitor } from "./fakeWebSocket";
@@ -39,9 +39,18 @@ const renderStatus = () =>
     </MemoryRouter>,
   );
 
+const feed = (open: Partial<NotifyIncident>[] = []): IncidentFeed => ({ asOf: Date.now(), open: open as NotifyIncident[], pending: [], recent: [], mutes: [], feeds: [] });
+let incidents = feed();
+
 beforeEach(() => {
   vi.mocked(reloadPage).mockClear();
-  vi.stubGlobal("fetch", vi.fn(async (path: string) => (path === "/api/me" ? Response.json({ email: "owner@example.com" }) : Response.json(summary()))));
+  incidents = feed();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) =>
+      path === "/api/me" ? Response.json({ email: "owner@example.com" }) : path === "/api/notify/incidents" ? Response.json(incidents) : Response.json(summary()),
+    ),
+  );
 });
 
 async function renderApp() {
@@ -80,6 +89,25 @@ describe("App", () => {
     expect(reloadPage).not.toHaveBeenCalled();
     act(() => void window.dispatchEvent(pageshow(true)));
     expect(reloadPage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Notifications tab", () => {
+  it("counts open incidents nobody has acknowledged", async () => {
+    incidents = feed([
+      { id: 1, ackedAt: null },
+      { id: 2, ackedAt: 1 },
+      { id: 3, ackedAt: null },
+    ]);
+    await renderApp();
+    const tab = screen.getByRole("link", { name: /Notifications/ });
+    expect((await within(tab).findByLabelText("2 open")).textContent).toBe("2");
+  });
+
+  it("shows no count when nothing is open", async () => {
+    await renderApp();
+    await act(() => Promise.resolve());
+    expect(screen.getByRole("link", { name: "Notifications" }).querySelector(".tab-count")).toBeNull();
   });
 });
 

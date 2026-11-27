@@ -365,3 +365,92 @@ export type LiveMessage =
   | { type: "update"; asOf: number; monitors: LiveMonitor[]; removed: number[]; incidents: Incident[] }
   | { type: "alive"; asOf: number }
   | { type: "error"; error: string; setup?: boolean };
+
+// --- /api/notify: push notifications ------------------------------------------------
+
+export type NotifySource = "endpoint" | "alert" | "argo" | "workflow";
+export type NotifySeverity = "critical" | "warning" | "info";
+
+/** One thing hdctl found wrong, as recorded (not live: the page it links to is). */
+export interface NotifyIncident {
+  id: number;
+  key: string;
+  source: NotifySource;
+  severity: NotifySeverity;
+  subject: string;
+  title: string;
+  body: string;
+  url: string;
+  link: string | null;
+  firstSeenAt: number;
+  /** The last evaluation that still found it wrong. */
+  lastSeenAt: number;
+  seen: number;
+  notifiedAt: number | null;
+  /** False when it opened while muted: nobody was told. */
+  pushed: boolean;
+  ackedAt: number | null;
+  ackedBy: string | null;
+  resolvedAt: number | null;
+  resolution: string | null;
+  mutedUntil: number | null;
+}
+
+export interface Mute {
+  id: number;
+  /** An incident key, or "*" for everything. */
+  key: string;
+  label: string;
+  until: number;
+  actor: string;
+  createdAt: number;
+}
+
+/** One feed's last evaluation by the cron. */
+export interface FeedStatus {
+  feed: string;
+  checkedAt: number;
+  okAt: number | null;
+  error: string | null;
+}
+
+export interface IncidentFeed {
+  asOf: number;
+  open: NotifyIncident[];
+  pending: NotifyIncident[];
+  recent: NotifyIncident[];
+  mutes: Mute[];
+  feeds: FeedStatus[];
+}
+
+export interface Device {
+  id: number;
+  label: string;
+  actor: string;
+  /** SHA-256 of the push endpoint, hex: how a browser finds its own row. */
+  endpointHash: string;
+  service: string;
+  sources: NotifySource[];
+  minSeverity: NotifySeverity;
+  recoveries: boolean;
+  createdAt: number;
+  lastSentAt: number | null;
+  lastError: string | null;
+  lastErrorAt: number | null;
+}
+
+export interface Devices {
+  publicKey: string;
+  devices: Device[];
+}
+
+/** What the push service said to a test or confirmation push. */
+export interface PushResult {
+  ok: boolean;
+  status: number | null;
+  gone?: boolean;
+  error?: string;
+}
+
+export const send = <T>(method: "PATCH" | "DELETE", path: string, body?: unknown) =>
+  api<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });

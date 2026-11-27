@@ -46,7 +46,7 @@ export function publicUrl(url: string | null | undefined): string {
   }
 }
 
-interface Repo {
+export interface Repo {
   full_name: string;
   archived: boolean;
   has_actions?: boolean;
@@ -107,9 +107,10 @@ interface GiteaRun {
 /** UTC ISO time; Gitea sends local times with an offset, GitHub sends UTC. */
 const iso = (t: string) => new Date(t).toISOString();
 
-export async function recentRuns(env: Env, perRepo = 15) {
+/** The latest runs of every repository (or of `only`, a list already read from repos()). */
+export async function recentRuns(env: Env, perRepo = 15, only?: Repo[]) {
   const lists = await Promise.all(
-    (await repos(env))
+    (only ?? (await repos(env)))
       .filter((r) => r.has_actions !== false)
       .map(async (repo) => {
         const [wfs, body] = await Promise.all([workflowsOf(env, repo), json<{ workflow_runs: GiteaRun[] | null }>(env, `/repos/${repo.full_name}/actions/runs?limit=${perRepo}`)]);

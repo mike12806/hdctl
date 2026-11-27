@@ -3,7 +3,8 @@
 **A control plane for a home lab, running entirely on Cloudflare.** One page
 shows whether everything in the lab is up and lets you act on it: sync Argo CD
 apps, start or reboot Proxmox guests, restart UniFi devices and power-cycle PoE
-ports, and run GitHub Actions workflows. Every action lands in an audit log.
+ports, and run GitHub Actions workflows. Every action lands in an audit log, and
+when something breaks, hdctl pushes a notification to your phone.
 
 A single Cloudflare Worker serves the React app and its API, Cloudflare Access
 gates it, and the Worker reaches the LAN over [Workers VPC][workers-vpc]
@@ -21,6 +22,7 @@ lab.
 | **Uptime** | Pushed live from Uptime Kuma's own API as Kuma checks: every monitor's status, last 60 checks, response time, 24 h and 30 d uptime, certificate expiry, and recent status changes, problems first. The Status page opens with a summary | Read only |
 | **Actions** | Recent runs and every active workflow, from GitHub Actions (every repository the GitHub account owns) and Gitea Actions (every repository on the Gitea instance), side by side | Run any `workflow_dispatch` workflow, with a form built from its inputs |
 | **Pull requests** | Every open pull request on GitHub (the account's repositories) and Gitea, with checks, conflicts, drafts and reviews | Merge (the repository's own method, pinned to the head commit shown), close |
+| **Notifications** | What hdctl found wrong and pushed to your devices: open incidents (problems first), what it's still watching before telling anyone, the last week's resolved ones, and how current each feed's evaluation is. Every device that turned notifications on, with its last delivery or the push service's last refusal | Turn notifications on or off for this device, send a test, choose per device what to hear about; acknowledge, mute one thing, pause everything |
 | **Audit** | Every action above: who, what, when, outcome | Read only |
 
 > hdctl is built for one specific home lab, and its config (hostnames, IPs,
@@ -60,14 +62,15 @@ flowchart LR
     subgraph worker["Worker"]
       api["Hono API<br/>JWT check · CSRF guard"]
       assets["React SPA<br/>static assets"]
-      cron["Cron every 2 min<br/>health checks"]
+      cron["Cron every 2 min<br/>health checks · notifications"]
     end
-    d1[("D1<br/>check history + audit log")]
+    d1[("D1<br/>check history · audit log<br/>devices · incidents")]
     kv[("KV<br/>ETag-validated GitHub copies")]
     vpc["Workers VPC<br/>one pinned service per target"]
   end
 
   gh["api.github.com"]
+  wp["Web Push services<br/>Apple · Google · Mozilla"]
 
   subgraph lab["Home lab (LAN)"]
     cfd["cloudflared<br/>(in k3s)"]
@@ -86,19 +89,67 @@ flowchart LR
   cfd -->|by IP, TLS verify_full| hosts
   cfd --> capps
   api --> gh
+  cron -->|VAPID-signed, end-to-end encrypted| wp
+  wp -. notification .-> you
 ```
 
 - **One Worker, not Pages plus a Worker.** The SPA is served as Workers static
   assets with `run_worker_first = true`, so every request, assets included,
   goes through the Worker's own Access JWT check. `workers.dev` and preview
   URLs are off, so the custom domain behind Access is the only way in.
-- **D1 holds only what no backend can give back:** health-check history and
-  the audit log.
+- **D1 holds only what no backend can give back:** health-check history, the
+  audit log, and the notification record (devices, and what was pushed).
 - **What depends on the cluster:** the tunnel's connector runs in k3s. If the
   cluster is down, hdctl still loads and shows everything as down. A second
   connector on a non-cluster host would keep Proxmox control during an outage.
 - **Cost:** it fits comfortably within the Workers Paid plan's included usage.
   Workers bill CPU time, not wall time, so slow backends cost nothing.
+
+## Push notifications
+
+Every two minutes, right after it probes every endpoint, the cron asks each
+feed what is wrong, each from its own system of record:
+
+| Feed | Source | Pushed when |
+|---|---|---|
+| Endpoints | hdctl's own probes (the cron's) | Down (critical) or degraded (warning) for **two checks in a row**. Every member of a group of three or more down at once is one notification ("Cluster apps: all 11 down"); 80% of everything down at once is one "hdctl can't reach the lab" |
+| Alerts | Alertmanager's own API | A firing alert, at once (its rule's `for:` already waited). Severity from its label |
+| Argo CD | Argo CD's API | An app Degraded or Missing for two checks, or whose last sync Failed |
+| Workflows | GitHub's and Gitea's APIs, every 10 minutes | The latest finished run of a workflow on the repository's default branch failed: with gitops, main isn't deploying. Covers runs nobody gets an email for, like Renovate's auto-merges |
+
+What each device hears about is its own choice (feeds, minimum severity,
+recoveries), set on the Notifications page.
+
+- **One notification per thing, replaced, not stacked.** Each push carries a
+  tag per thing (`hdctl:target:harbor`), so its recovery ("Resolved: Harbor,
+  back up after 12 min") replaces the alarm on the lock screen, quietly. A
+  rise in severity (degraded → down) is pushed again, unless acknowledged.
+  Recoveries go only for alarms that actually went out.
+- **Stale news doesn't arrive late.** Each push also carries a Web Push
+  `Topic`, so a message still queued for an offline phone is replaced by the
+  next one about the same thing, and its time is when it happened, not when
+  it arrived. Urgency follows severity, so critical wakes a phone in battery
+  saver.
+- **Acknowledge, mute, pause.** From the notification itself (desktop and
+  Android; iOS opens the page): acknowledging stops escalations, drops it
+  from the badge, and takes it off your other devices the next time they
+  open hdctl. Muting holds every push about one thing; pausing, about
+  everything. Both are still recorded.
+- **Exactly once.** Every transition (opened, escalated, resolved) is claimed
+  by the one statement that makes it, so overlapping cron runs push once.
+  A push service that answers 5xx or 429 is retried on later runs, while
+  what it says is still true; one that says the subscription is gone (404/410)
+  gets the device forgotten.
+- **Not hearing is not good news.** A feed that can't be read opens and
+  resolves nothing, and the page says which feed failed and since when.
+- **End-to-end encrypted.** Push services (Apple, Google, Mozilla, Microsoft)
+  only relay ciphertext (RFC 8291), and a subscription is only accepted at one
+  of them, so a device can't make the Worker call anything else.
+- **The service worker caches nothing.** It has no fetch handler: it shows
+  pushes and handles taps, and every page load still goes to the Worker.
+- **iPhone and iPad:** push reaches the Home Screen app only (Share → Add to
+  Home Screen, then turn notifications on from there). The app icon shows
+  the number of open incidents.
 
 ## Security
 
@@ -110,6 +161,7 @@ flowchart LR
 | Pinned VPC Services | One `host:port` per target, no VPC Network binding, TLS `verify_full` |
 | Narrow actions | Argo: sync without prune, via an account limited to get + sync. Proxmox: start / shutdown / reboot only. GitHub: allowlisted repos, `workflow_dispatch` only, inputs checked against the workflow's definition. UniFi: restart, locate, PoE cycle, Wi-Fi reconnect and speed test only, each checked against what the gateway reports first |
 | Audit | Every action recorded before it runs |
+| Push | VAPID-signed (RFC 8292) and encrypted per device (RFC 8291); subscriptions accepted only at known push services; acknowledge and mute from a notification go through the same Access and CSRF checks as the page |
 | Secrets | Kept in Vault and synced to Worker secrets at deploy; never in git |
 | Headers | CSP `default-src 'self'`, `frame-ancestors 'none'`, `nosniff`, `no-referrer` |
 
@@ -129,9 +181,11 @@ worker/
     cache.ts          KV cache that only serves origin-confirmed (304) copies
     audit.ts          audited() wrapper + audit log reads
     integrations/     argo · proxmox · unifi · kuma · github · gitea · prometheus
+    notify/           push notifications: sources · incidents · deliver · webpush · devices
   test/               vitest against fake upstreams
 client/
-  src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Uptime · Actions · Pull requests · Audit
+  src/pages/          Status · Metrics · Argo · Proxmox · UniFi · Uptime · Actions · Pull requests · Notifications · Audit
+  src/sw.ts           the service worker: shows pushes, handles taps, caches nothing
   test/               vitest + jsdom
 ```
 
@@ -152,8 +206,10 @@ To adapt hdctl to another lab:
    `GITHUB_TOKEN`, `GITEA_TOKEN`, `UNIFI_API_KEY`, `KUMA_TOKEN` (an Uptime Kuma login token),
    `PIHOLE_PASSWORDS` (JSON map of Pi-hole target id to a Pi-hole app password, which logs in without TOTP;
    the deploy reads them from Vault `kv/github/hdctl/pihole`, a copy of `kv/kubernetes/pihole-proxy/pihole-exporter` with the same keys,
-   so changing a Pi-hole app password means updating both entries). A page whose secret is missing says
-   "Not set up yet" rather than failing.
+   so changing a Pi-hole app password means updating both entries), and for push notifications
+   `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (`npm run vapid-keys -w worker` prints a pair; store it once at
+   `kv/github/hdctl/push` and keep it: every device's subscription is bound to that public key). A page whose
+   secret is missing says "Not set up yet" rather than failing.
 4. **Deploy** with `wrangler deploy`, after creating the D1 database and KV
    namespace and applying migrations. `.github/workflows/deploy.yml` shows how
    this repo does it from CI, with secrets pulled from Vault.
@@ -177,6 +233,8 @@ UNIFI_API_KEY=…
 KUMA_TOKEN=…
 GITEA_TOKEN=…
 PIHOLE_PASSWORDS='{"dns7":"<app password>"}'
+VAPID_PUBLIC_KEY=…
+VAPID_PRIVATE_KEY=…
 ```
 
 Then run with a Cloudflare token that can bind VPC Services (the bindings are
@@ -203,7 +261,10 @@ down that nothing is served without a valid Access token, that state-changing
 calls without the CSRF header are refused before anything is sent, that every
 page reads its source live and shows an error rather than old data when it
 fails, that the KV cache answers only after GitHub's 304, and that every
-action is validated, narrow and audited. The client tests cover polling (a
+action is validated, narrow and audited. The notification tests decrypt
+every push the way the device would, with an independent implementation of
+the receiving side, so they assert what a phone would actually show. The
+client tests cover polling (a
 failed refresh clears the data, stale data is withheld, polling pauses after
 15 minutes without input and resumes with a fresh load) and reloading after a
 deploy.
