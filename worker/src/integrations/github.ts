@@ -20,21 +20,27 @@ interface Repo {
   full_name: string;
   owner: { login: string };
   archived: boolean;
+  default_branch?: string;
 }
 
 /**
  * Every repository GITHUB_OWNER owns that the token can see, archived ones
- * left out (their workflows can't run). Sorted by name.
+ * left out (their workflows can't run), with its default branch. Sorted by name.
  */
-export async function repos(rt: Runtime): Promise<string[]> {
+export async function activeRepos(rt: Runtime): Promise<{ name: string; defaultBranch: string | null }[]> {
   const owner = rt.env.GITHUB_OWNER.toLowerCase();
-  const found: string[] = [];
+  const found: { name: string; defaultBranch: string | null }[] = [];
   for (let page = 1; page <= 10; page++) {
     const batch = await gh<Repo[]>(rt, `/user/repos?affiliation=owner,collaborator&sort=full_name&per_page=100&page=${page}`);
-    for (const r of batch) if (r.owner.login.toLowerCase() === owner && !r.archived) found.push(r.full_name);
+    for (const r of batch) if (r.owner.login.toLowerCase() === owner && !r.archived) found.push({ name: r.full_name, defaultBranch: r.default_branch ?? null });
     if (batch.length < 100) break;
   }
-  return found.sort((a, b) => a.localeCompare(b));
+  return found.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The names from activeRepos. */
+export async function repos(rt: Runtime): Promise<string[]> {
+  return (await activeRepos(rt)).map((r) => r.name);
 }
 
 /** Only GITHUB_OWNER's own, unarchived repositories, as GitHub lists them right now. */
@@ -111,9 +117,10 @@ interface Run {
   workflow_id: number;
 }
 
-export async function recentRuns(rt: Runtime, perRepo = 15) {
+/** The latest runs of every repository (or of `only`, a list already read from repos()). */
+export async function recentRuns(rt: Runtime, perRepo = 15, only?: string[]) {
   const lists = await Promise.all(
-    (await repos(rt)).map(async (repo) => {
+    (only ?? (await repos(rt))).map(async (repo) => {
       const body = await orNone(gh<{ workflow_runs: Run[] }>(rt, `/repos/${repo}/actions/runs?per_page=${perRepo}`), { workflow_runs: [] });
       return body.workflow_runs.map((r) => ({
         forge: "github" as const,

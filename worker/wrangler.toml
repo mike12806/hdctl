@@ -26,7 +26,8 @@ not_found_handling = "single-page-application"
 run_worker_first = true
 
 # Records health-check history every two minutes; see src/health.ts. The
-# Status page itself always probes live.
+# Status page itself always probes live. The same run evaluates and pushes
+# notifications (src/notify/run.ts).
 [triggers]
 crons = ["*/2 * * * *"]
 
@@ -84,6 +85,9 @@ ALLOWED_EMAILS = "michaelefaherty@gmail.com"
 # The account whose repositories' Actions hdctl shows and can dispatch: every
 # repository it owns, listed live from GitHub (archived ones left out).
 GITHUB_OWNER = "mike12806"
+# Push notifications: the VAPID `sub` claim, how a push service can reach
+# whoever runs this sender. An https URL rather than an email, to keep one out of git.
+VAPID_SUBJECT = "https://hdctl.mfaherty.net"
 # The deployed build; deploy.yml overrides it with the git SHA (--var), and the
 # client is built with the same value. A mismatch tells an open tab to reload.
 BUILD_ID = "dev"
@@ -94,6 +98,9 @@ BUILD_ID = "dev"
 #   GITHUB_TOKEN   PAT that can read Actions and dispatch workflows
 #   UNIFI_API_KEY  UniFi OS API key for the UDM's Network application
 #   KUMA_TOKEN     Uptime Kuma login token (the JWT its web UI keeps)
+#   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
+#                  hdctl's Web Push keypair. Not from Vault: the first deploy
+#                  generates it (scripts/ensure-vapid-keys.mjs) and keeps it
 # For local dev, put them in worker/.dev.vars along with DEV_MODE=true.
 
 # Workers VPC: one pinned service per target in infra/targets.json.

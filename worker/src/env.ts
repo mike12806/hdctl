@@ -23,6 +23,11 @@ export interface Env {
   KUMA_TOKEN?: string;
   /** Pi-hole app passwords, JSON keyed by target id ({"dns7": "..."}), for each Pi-hole's own API. */
   PIHOLE_PASSWORDS?: string;
+  /** hdctl's Web Push (VAPID) keypair, base64url: the raw P-256 public key and the private key's JWK `d`. Generated once by the deploy (scripts/ensure-vapid-keys.mjs), not from Vault. */
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  /** The VAPID `sub` claim push services can contact: an https URL (no email in git). */
+  VAPID_SUBJECT?: string;
   /** The Durable Object that holds the one live connection to Uptime Kuma. */
   KUMA_LIVE: DurableObjectNamespace;
 

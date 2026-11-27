@@ -30,6 +30,13 @@ revalidated against the source).
   through that tunnel (a target `tunnelId`), by its container name on the
   compose network. In-cluster apps go to their Service, never a Multus/macvlan
   address (unreachable from the node it runs on).
+- Push notifications (`worker/src/notify/`) follow the same rule: each feed
+  is read from its system's own API, in the cron. A feed that can't be read
+  opens and resolves nothing (not hearing about a problem isn't evidence it's
+  over). Every incident transition is claimed by the one statement that makes
+  it (`incidents.ts`): keep the decision and the claim in that statement.
+- The service worker (`client/src/sw.ts`) has no fetch handler on purpose.
+  Never add caching there.
 - Tests: `npm test` (no network or credentials). Each integration has worker
   tests against a fake upstream that records every call, and the client page
   has a jsdom test. `npm run typecheck`, and `npm run vpc:check` after

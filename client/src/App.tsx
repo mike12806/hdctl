@@ -12,6 +12,8 @@ import { KumaPage } from "./pages/Kuma";
 import { ActionsPage } from "./pages/Actions";
 import { PullsPage } from "./pages/Pulls";
 import { AuditPage } from "./pages/Audit";
+import { NotificationsPage } from "./pages/Notifications";
+import { IncidentFeedProvider, live, useIncidentFeed } from "./notifications/feed";
 
 const NAV = [
   { to: "/", label: "Status", end: true },
@@ -23,10 +25,30 @@ const NAV = [
   { to: "/uptime", label: "Uptime" },
   { to: "/actions", label: "Actions" },
   { to: "/pulls", label: "Pull requests" },
+  { to: "/notifications", label: "Notifications" },
   { to: "/audit", label: "Audit" },
 ];
 
 export function App() {
+  return (
+    <IncidentFeedProvider>
+      <Shell />
+    </IncidentFeedProvider>
+  );
+}
+
+/** Open, unacknowledged incidents, on the Notifications tab. Nothing while the count isn't current. */
+function OpenCount() {
+  const { data } = useIncidentFeed();
+  const n = data ? live(data).length : 0;
+  return n > 0 ? (
+    <span className="tab-count" aria-label={`${n} open`}>
+      {n}
+    </span>
+  ) : null;
+}
+
+function Shell() {
   const [email, setEmail] = useState<string | null>(null);
   const [newBuild, setNewBuild] = useState(false);
   useEffect(() => {
@@ -95,6 +117,7 @@ export function App() {
             {NAV.map((n) => (
               <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `tab${isActive ? " tab-active" : ""}`}>
                 {n.label}
+                {n.to === "/notifications" && <OpenCount />}
               </NavLink>
             ))}
           </div>
@@ -123,6 +146,7 @@ export function App() {
           <Route path="/uptime" element={<KumaPage />} />
           <Route path="/actions" element={<ActionsPage />} />
           <Route path="/pulls" element={<PullsPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="*" element={<StatusPage />} />
         </Routes>

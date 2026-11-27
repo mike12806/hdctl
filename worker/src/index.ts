@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv, Env, Identity, Runtime } from "./env";
 import { AuthError, accessKeyFetcher, allowedEmails, tokenFrom, verifyAccessJwt } from "./auth";
-import { BadRequest, NotConfigured, UpstreamError } from "./errors";
+import { BadRequest, NotConfigured, NotFound, UpstreamError } from "./errors";
 import { MissingBindingError } from "./targets";
 import { pruneChecks, recordChecks, statusSummary } from "./health";
 import { audited, recentAudit } from "./audit";
@@ -13,6 +13,9 @@ import * as prometheus from "./integrations/prometheus";
 import * as unifi from "./integrations/unifi";
 import * as pihole from "./integrations/pihole";
 import * as kuma from "./integrations/kuma";
+import * as incidents from "./notify/incidents";
+import * as devices from "./notify/devices";
+import { runNotifications } from "./notify/run";
 
 const app = new Hono<AppEnv>();
 
@@ -190,6 +193,23 @@ app.post("/api/pulls/:forge/:owner/:repo/:number/:action", async (c) => {
 // Audit log
 app.get("/api/audit", async (c) => c.json(await recentAudit(c.env)));
 
+// Notifications: hdctl's record of what it found wrong and told you about
+// (src/notify/, evaluated by the cron), and the devices that hear about it.
+// None of this touches another system, so none of it is audited.
+const body = async (c: { req: { json(): Promise<unknown> } }) => ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
+app.get("/api/notify/incidents", async (c) => c.json(await incidents.feed(c.env)));
+app.post("/api/notify/incidents/:id/ack", async (c) => c.json(await incidents.ack(c.env, who(c), incidents.parseId(c.req.param("id")))));
+app.post("/api/notify/incidents/:id/mute", async (c) =>
+  c.json(await incidents.muteIncident(c.env, who(c), incidents.parseId(c.req.param("id")), incidents.parseMinutes((await body(c)).minutes))),
+);
+app.post("/api/notify/pause", async (c) => c.json(await incidents.pauseAll(c.env, who(c), incidents.parseMinutes((await body(c)).minutes))));
+app.delete("/api/notify/mutes/:id", async (c) => c.json(await incidents.unmute(c.env, incidents.parseId(c.req.param("id")))));
+app.get("/api/notify/devices", async (c) => c.json(await devices.listDevices(c.env)));
+app.post("/api/notify/devices", async (c) => c.json(await devices.registerDevice(c.env, who(c), await body(c))));
+app.patch("/api/notify/devices/:id", async (c) => c.json(await devices.updateDevice(c.env, c.req.param("id"), await body(c))));
+app.delete("/api/notify/devices/:id", async (c) => c.json(await devices.removeDevice(c.env, c.req.param("id"))));
+app.post("/api/notify/devices/:id/test", async (c) => c.json(await devices.testDevice(c.env, c.req.param("id"))));
+
 app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 
 // Everything else is the React app (SPA fallback is handled by the assets config).
@@ -208,6 +228,7 @@ app.onError((err, c) => {
       : c.text("hdctl: sign in through Cloudflare Access at https://hdctl.mfaherty.net", 401);
   }
   if (err instanceof BadRequest) return c.json({ error: err.message }, 400);
+  if (err instanceof NotFound) return c.json({ error: err.message }, 404);
   if (err instanceof NotConfigured || err instanceof MissingBindingError) return c.json({ error: err.message, setup: true }, 503);
   if (err instanceof UpstreamError) return c.json({ error: err.message }, 502);
   // VPC fetch failures (tunnel down, connection refused, timeout) land here too.
@@ -219,11 +240,18 @@ export { KumaLive } from "./integrations/kuma";
 
 export default {
   fetch: app.fetch,
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     const results = await recordChecks(env);
     const down = results.filter((r) => r.state !== "up").map((r) => `${r.targetId}=${r.state}`);
     console.log(JSON.stringify({ msg: "health checks", total: results.length, notUp: down }));
     // Pruning is cheap but needn't hold up the run.
     ctx.waitUntil(pruneChecks(env));
+    ctx.waitUntil(incidents.pruneNotifications(env));
+    // Then decide what's wrong, from these same probes and each feed's own API, and push it.
+    try {
+      await runNotifications({ env, waitUntil: (p) => ctx.waitUntil(p) }, results, controller.scheduledTime);
+    } catch (err) {
+      console.error(JSON.stringify({ msg: "notifications failed", error: err instanceof Error ? (err.stack ?? err.message) : String(err) }));
+    }
   },
 } satisfies ExportedHandler<Env>;

@@ -6,3 +6,6 @@ export class UpstreamError extends Error {}
 
 /** The request itself is wrong (unknown host, bad vmid, ...): answered as 400. */
 export class BadRequest extends Error {}
+
+/** The thing asked about doesn't exist: answered as 404. */
+export class NotFound extends Error {}
