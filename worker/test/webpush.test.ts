@@ -99,6 +99,8 @@ describe("parseDeviceKeys", () => {
     }
     expect(() => parseDeviceKeys({ endpoint: d.subscription.endpoint, keys: { p256dh: d.subscription.keys.p256dh, auth: "AAAA" } })).toThrow(/16 bytes/);
     expect(() => parseDeviceKeys(null)).toThrow();
+    // Oversized keys are refused before any regular expression or decoding runs over them.
+    expect(() => parseDeviceKeys({ endpoint: d.subscription.endpoint, keys: { p256dh: "A".repeat(100_000) + "=".repeat(100_000), auth: d.subscription.keys.auth } })).toThrow(/required/);
   });
 });
 

@@ -7,7 +7,7 @@ GITHUB_TOKEN=
 ARGOCD_TOKEN=
 # UniFi OS API key for the UDM (Vault kv/github/hdctl/unifi)
 UNIFI_API_KEY=
-# Web Push keypair (npm run vapid-keys -w worker; Vault kv/github/hdctl/push). Push
+# Web Push keypair, from Vault kv/github/hdctl/push (npm run vapid-keys -w worker creates it). Push
 # needs a secure context: localhost counts, so notifications work in local dev.
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=

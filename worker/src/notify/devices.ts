@@ -11,11 +11,12 @@ import { SEVERITIES, SOURCES, type Severity, type Source } from "./types";
  * its own device apart by a hash of the endpoint.
  */
 
+/** Who runs a push service, for the device list. Anchored at both ends, like PUSH_HOSTS in webpush.ts. */
 const SERVICES: [RegExp, string][] = [
-  [/\.push\.apple\.com$/, "Apple"],
-  [/googleapis\.com$/, "Google"],
-  [/mozilla\.com$/, "Mozilla"],
-  [/notify\.windows\.com$/, "Microsoft"],
+  [/^(?:[a-z0-9-]+\.)?push\.apple\.com$/, "Apple"],
+  [/^(?:fcm|android)\.googleapis\.com$/, "Google"],
+  [/^(?:updates\.)?push\.services\.mozilla\.com$/, "Mozilla"],
+  [/^[a-z0-9-]+\.notify\.windows\.com$/, "Microsoft"],
 ];
 
 async function sha256Hex(s: string): Promise<string> {

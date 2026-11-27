@@ -207,8 +207,9 @@ To adapt hdctl to another lab:
    `PIHOLE_PASSWORDS` (JSON map of Pi-hole target id to a Pi-hole app password, which logs in without TOTP;
    the deploy reads them from Vault `kv/github/hdctl/pihole`, a copy of `kv/kubernetes/pihole-proxy/pihole-exporter` with the same keys,
    so changing a Pi-hole app password means updating both entries), and for push notifications
-   `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (`npm run vapid-keys -w worker` prints a pair; store it once at
-   `kv/github/hdctl/push` and keep it: every device's subscription is bound to that public key). A page whose
+   `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (`npm run vapid-keys -w worker` creates a pair and stores it at
+   `kv/github/hdctl/push` with the vault CLI, without printing the private key; run it once and keep the pair:
+   every device's subscription is bound to that public key). A page whose
    secret is missing says "Not set up yet" rather than failing.
 4. **Deploy** with `wrangler deploy`, after creating the D1 database and KV
    namespace and applying migrations. `.github/workflows/deploy.yml` shows how

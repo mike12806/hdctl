@@ -68,8 +68,10 @@ const PUSH_HOSTS: RegExp[] = [
 
 const B64URL = /^[A-Za-z0-9_-]+={0,2}$/;
 
+// Padding is dropped with a global single-character replace rather than an
+// anchored /=+$/, which backtracks quadratically on a long run of "=".
 export function base64UrlToBytes(b64url: string): Uint8Array {
-  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/").replace(/=/g, "");
   const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
@@ -80,7 +82,7 @@ export function base64UrlToBytes(b64url: string): Uint8Array {
 export function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
 /**
@@ -101,7 +103,8 @@ export function parseDeviceKeys(raw: unknown): DeviceKeys {
   }
   const p256dh = s.keys?.p256dh;
   const auth = s.keys?.auth;
-  if (typeof p256dh !== "string" || !B64URL.test(p256dh) || typeof auth !== "string" || !B64URL.test(auth)) {
+  // A P-256 key is 88 characters and an auth secret 24, encoded: anything far longer isn't one.
+  if (typeof p256dh !== "string" || p256dh.length > 128 || !B64URL.test(p256dh) || typeof auth !== "string" || auth.length > 64 || !B64URL.test(auth)) {
     throw new BadRequest("subscription.keys.p256dh and subscription.keys.auth are required");
   }
   const key = base64UrlToBytes(p256dh);
@@ -172,7 +175,7 @@ export async function vapidJwt(audience: string, subject: string, publicKey: str
   const pub = base64UrlToBytes(publicKey);
   const key = await crypto.subtle.importKey(
     "jwk",
-    // The private key is stored as the JWK `d` value itself (base64url), which is what vapid-keys.mjs prints.
+    // The private key is stored as the JWK `d` value itself (base64url), which is what vapid-keys.mjs stores.
     { kty: "EC", crv: "P-256", d: privateKey, x: bytesToBase64Url(pub.slice(1, 33)), y: bytesToBase64Url(pub.slice(33, 65)), ext: true },
     { name: "ECDSA", namedCurve: "P-256" },
     false,
@@ -187,7 +190,7 @@ export async function vapidJwt(audience: string, subject: string, publicKey: str
 export function vapidPublicKey(env: Env): string {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
     throw new NotConfigured(
-      "VAPID keys aren't set. Run `npm run vapid-keys -w worker` once, store both values at Vault kv/github/hdctl/push, and re-run the deploy.",
+      "VAPID keys aren't set. Run `npm run vapid-keys -w worker` once (it stores a new pair at Vault kv/github/hdctl/push), then re-run the deploy.",
     );
   }
   return env.VAPID_PUBLIC_KEY;
