@@ -431,9 +431,18 @@ function FeedHealth({ feeds, now }: { feeds: FeedStatus[]; now: number }) {
 }
 
 function OpenIncidents({ feed, now, run }: { feed: IncidentFeed; now: number; run: (c: () => Promise<unknown>) => Promise<void> }) {
+  // The ones on screen, by id: one raised after this render isn't acknowledged unseen.
+  const unacked = feed.open.filter((i) => i.ackedAt === null).map((i) => i.id);
   return (
     <section className="group">
-      <h2 className="group-title">Open</h2>
+      <div className="group-head">
+        <h2 className="group-title">Open</h2>
+        {unacked.length > 1 && (
+          <button className="btn btn-sm" onClick={() => void run(() => post("/api/notify/incidents/ack", { ids: unacked }))}>
+            Acknowledge all ({unacked.length})
+          </button>
+        )}
+      </div>
       {feed.open.length === 0 ? (
         <Ok>Nothing open.</Ok>
       ) : (

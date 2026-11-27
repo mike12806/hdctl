@@ -222,6 +222,35 @@ describe("acknowledging, muting and pausing", () => {
     expect((await alarms(t, phone))[1]).toMatchObject({ kind: "resolve", open: 0 });
   });
 
+  it("acknowledges all the incidents the page showed, and not one raised since", async () => {
+    const t = await setup({ upstream: allBut(["harbor", "immich"], refused) });
+    const phone = await enable(t);
+    await tick(t, 2);
+    const shown = (await alarms(t, phone)).map((p) => p.id!);
+    expect(shown).toHaveLength(2);
+    // Paperless goes down after the page was rendered.
+    t.setUpstream(allBut(["harbor", "immich", "paperless"], refused));
+    await tick(t, 2);
+
+    const res = await action(t.env, "/api/notify/incidents/ack", { ids: [...shown, 9999] });
+    expect(await res.json()).toEqual({ acked: 2, open: 1 });
+    const feed = (await (await call(t.env, "/api/notify/incidents")).json()) as { open: { title: string; ackedBy: string | null }[] };
+    expect(Object.fromEntries(feed.open.map((i) => [i.title, i.ackedBy]))).toEqual({
+      "Harbor is down": "owner@example.com",
+      "Immich is down": "owner@example.com",
+      "Paperless is down": null,
+    });
+    // Once is enough: a second tap changes nothing.
+    expect(await (await action(t.env, "/api/notify/incidents/ack", { ids: shown })).json()).toEqual({ acked: 0, open: 1 });
+  });
+
+  it("refuses an acknowledge-all that isn't a list of ids", async () => {
+    const t = await setup();
+    for (const ids of [undefined, [], "1,2", [0], [1.5], [-3], ["7"], Array.from({ length: 1001 }, (_, i) => i + 1)]) {
+      expect((await action(t.env, "/api/notify/incidents/ack", { ids })).status, JSON.stringify(ids)?.slice(0, 20)).toBe(400);
+    }
+  });
+
   it("muting a thing records it but pushes nothing about it until the mute ends", async () => {
     const t = await setup({ upstream: allBut(["harbor"], refused) });
     const phone = await enable(t);

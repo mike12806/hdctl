@@ -239,6 +239,23 @@ describe("the record", () => {
     await vi.waitFor(() => expect(calls.filter((c) => c.path === "/api/notify/incidents").length).toBeGreaterThan(reads));
   });
 
+  it("acknowledges all that it shows at once", async () => {
+    fakeBrowser();
+    feed.open = [incident({ id: 1 }), incident({ id: 2, title: "Immich is down" }), incident({ id: 3, title: "Vault is sealed", ackedAt: Date.now() })];
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Acknowledge all (2)" }));
+    await act(() => Promise.resolve());
+    expect(calls).toContainEqual({ method: "POST", path: "/api/notify/incidents/ack", body: { ids: [1, 2] } });
+  });
+
+  it("offers acknowledge-all only when there's more than one to acknowledge", async () => {
+    fakeBrowser();
+    feed.open = [incident({ id: 1 }), incident({ id: 3, title: "Vault is sealed", ackedAt: Date.now() })];
+    renderPage();
+    await screen.findByText("Harbor is down");
+    expect(screen.queryByRole("button", { name: /Acknowledge all/ })).toBeNull();
+  });
+
   it("mutes one thing for an hour, and pauses everything", async () => {
     fakeBrowser();
     feed.open = [incident()];
