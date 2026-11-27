@@ -3,7 +3,7 @@ import { NotConfigured } from "../errors";
 import type { CheckResult } from "../health";
 import { applyObservation, recordFeed, type NotifyEvent } from "./incidents";
 import { deliver, retryDue } from "./deliver";
-import { observeAlerts, observeArgo, observeEndpoints, observeGitea, observeGithub } from "./sources";
+import { observeAlerts, observeArgo, observeBackups, observeEndpoints, observeGitea, observeGithub, observeGuests, observeKuma, observePihole, observeUnifi } from "./sources";
 import type { FeedOutcome, Observation } from "./types";
 
 /**
@@ -11,14 +11,15 @@ import type { FeedOutcome, Observation } from "./types";
  * every endpoint: ask each feed what's wrong, apply that to the incidents,
  * push what changed, and retry earlier pushes that are due.
  *
- * The forges are asked every ten minutes rather than every two: a failed
- * deploy isn't minute-critical, and it keeps GitHub and Gitea from being read
- * across every repository thirty times an hour.
+ * Some feeds are asked every ten minutes rather than every two: the forges (a
+ * failed deploy isn't minute-critical, and it keeps GitHub and Gitea from
+ * being read across every repository thirty times an hour), backups (they run
+ * nightly), and the Pi-holes (each read is a login, and FTL has few API seats).
  */
 
-export const WORKFLOW_EVERY_MIN = 10;
+export const SLOW_EVERY_MIN = 10;
 
-export const workflowsDue = (scheduledTime: number) => Math.floor(scheduledTime / 60_000) % WORKFLOW_EVERY_MIN === 0;
+export const slowFeedsDue = (scheduledTime: number) => Math.floor(scheduledTime / 60_000) % SLOW_EVERY_MIN === 0;
 
 async function outcome(feed: string, run: () => Promise<Observation | null>): Promise<FeedOutcome> {
   try {
@@ -36,14 +37,19 @@ export async function runNotifications(rt: Runtime, checks: CheckResult[], sched
     ["endpoint", async () => observeEndpoints(checks)],
     ["alert", () => observeAlerts(env)],
     ["argo", () => observeArgo(env)],
+    ["kuma", () => observeKuma(env)],
+    ["proxmox", () => observeGuests(env)],
+    ["unifi", () => observeUnifi(env)],
   ];
-  if (workflowsDue(scheduledTime)) feeds.push(["github", () => observeGithub(rt)], ["gitea", () => observeGitea(env)]);
+  if (slowFeedsDue(scheduledTime)) {
+    feeds.push(["github", () => observeGithub(rt)], ["gitea", () => observeGitea(env)], ["backup", () => observeBackups(env)], ["pihole", () => observePihole(env)]);
+  }
 
   const outcomes = await Promise.all(feeds.map(([feed, run]) => outcome(feed, run)));
   const events: NotifyEvent[] = [];
   for (const o of outcomes) {
     if ("observation" in o) events.push(...(await applyObservation(env, o.observation, now)));
-    await recordFeed(env, o.feed, now, "skipped" in o ? "skipped" : { error: "error" in o ? o.error : null });
+    await recordFeed(env, o.feed, now, "skipped" in o ? "skipped" : { error: "error" in o ? o.error : (o.observation.partial ?? null) });
   }
 
   const delivered = await deliver(env, events, now);

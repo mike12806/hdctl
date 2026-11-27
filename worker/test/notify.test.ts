@@ -557,7 +557,7 @@ describe("the devices API", () => {
     expect(text).not.toContain(phone.subscription.keys.auth);
     expect(text).not.toContain(phone.subscription.endpoint);
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(phone.subscription.endpoint)));
-    expect(list).toMatchObject({ publicKey: t.env.VAPID_PUBLIC_KEY, devices: [{ actor: "owner@example.com", endpointHash: [...digest].map((b) => b.toString(16).padStart(2, "0")).join(""), sources: ["endpoint", "alert", "argo", "workflow"] }] });
+    expect(list).toMatchObject({ publicKey: t.env.VAPID_PUBLIC_KEY, devices: [{ actor: "owner@example.com", endpointHash: [...digest].map((b) => b.toString(16).padStart(2, "0")).join(""), sources: ["endpoint", "alert", "argo", "workflow", "kuma", "proxmox", "network", "dns"] }] });
 
     // Registering again refreshes it, keeps its preferences, and doesn't push again.
     const again = await action(t.env, "/api/notify/devices", { subscription: phone.subscription });

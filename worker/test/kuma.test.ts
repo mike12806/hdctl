@@ -61,6 +61,11 @@ class FakeKuma implements Socketish {
     this.closed = true;
     if (this.pinger !== undefined) clearInterval(this.pinger);
   }
+  /** A Kuma that accepts the socket and then never says anything. */
+  silent() {
+    this.push = () => {};
+    return this;
+  }
   /** What Kuma pushes on its own. */
   event(name: string, ...args: unknown[]) {
     this.push(`42${JSON.stringify([name, ...args])}`);
@@ -311,5 +316,53 @@ describe("GET /api/kuma/live", () => {
     expect((await call(t.env, "/api/kuma/live")).status).toBe(426);
     expect((await call(t.env, "/api/kuma/live", { token: null, headers: { Upgrade: "websocket", Origin: ORIGIN } })).status).toBe(401);
     expect(forwarded).toHaveLength(0);
+  });
+});
+
+describe("snapshots for the notifier", () => {
+  it("opens a connection when none is open, answers with every monitor, and closes it a minute later", async () => {
+    const { hub: h, conns } = hub();
+    const snap = h.snapshot();
+    await tick();
+    expect(await snap).toMatchObject({ monitors: expect.arrayContaining([expect.objectContaining({ name: "dns9", status: "down" })]) });
+    expect(conns).toHaveLength(1);
+    expect(conns[0]!.closed).toBe(false);
+    await tick(IDLE_CLOSE_MS);
+    expect(conns[0]!.closed).toBe(true);
+    // And the next one opens a fresh connection, closed again after its minute.
+    const again = h.snapshot();
+    await tick();
+    expect(await again).toHaveProperty("monitors");
+    expect(conns).toHaveLength(2);
+    await tick(IDLE_CLOSE_MS);
+    expect(conns[1]!.closed).toBe(true);
+  });
+
+  it("uses a tab's open connection, and leaves it open for the tab", async () => {
+    const { hub: h, conns } = hub();
+    const v = new Viewer();
+    h.addViewer(v);
+    await tick();
+    expect(await h.snapshot()).toHaveProperty("monitors");
+    expect(conns).toHaveLength(1);
+    await tick(IDLE_CLOSE_MS * 3);
+    expect(conns[0]!.closed).toBe(false);
+  });
+
+  it("answers with Kuma's refusal rather than monitors", async () => {
+    const { hub: h } = hub("wrong-token");
+    const snap = h.snapshot();
+    await tick();
+    expect(await snap).toEqual({ error: expect.stringContaining("refused the login token") });
+  });
+
+  it("says it isn't set up without a token, and gives up on a Kuma that never answers", async () => {
+    const connect = vi.fn();
+    expect(await new KumaHub({ token: undefined, connect }).snapshot()).toMatchObject({ setup: true });
+    expect(connect).not.toHaveBeenCalled();
+    const { hub: h } = hub(TOKEN, () => new FakeKuma(TOKEN).silent());
+    const snap = h.snapshot(5_000);
+    await tick(5_000);
+    expect(await snap).toEqual({ error: "Uptime Kuma didn't answer within 5 s." });
   });
 });

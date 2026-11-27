@@ -1,5 +1,9 @@
-/** What a device can choose to hear about. Lab-wide and group outages count as `endpoint`. */
-export const SOURCES = ["endpoint", "alert", "argo", "workflow"] as const;
+/**
+ * What a device can choose to hear about. Lab-wide and group outages count as
+ * `endpoint`; `proxmox` is guests that should be running and failed backups;
+ * `network` is UniFi devices, the WAN and the internet; `dns` is Pi-hole blocking.
+ */
+export const SOURCES = ["endpoint", "alert", "argo", "workflow", "kuma", "proxmox", "network", "dns"] as const;
 export type Source = (typeof SOURCES)[number];
 
 export const SEVERITIES = ["critical", "warning", "info"] as const;
@@ -51,6 +55,12 @@ export interface Observation {
    * lab-wide outage).
    */
   ageOut?: boolean;
+  /**
+   * Part of the feed couldn't be read (one Proxmox host, one Pi-hole): what
+   * it covers is neither opened nor resolved, and the page shows this as the
+   * feed's error, while the rest of the observation still applies.
+   */
+  partial?: string | null;
 }
 
 export type FeedOutcome = { feed: string; observation: Observation } | { feed: string; error: string } | { feed: string; skipped: true };

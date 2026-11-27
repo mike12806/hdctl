@@ -208,6 +208,19 @@ describe("this device, once on", () => {
     expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({ subscription: { endpoint: `${ENDPOINT}-2` }, replaces: ENDPOINT });
   });
 
+  it("offers every source, the newer ones included", async () => {
+    fakeBrowser({ subscribed: true, permission: "granted" });
+    const all = ["endpoint", "alert", "argo", "workflow", "kuma", "proxmox", "network", "dns"] as const;
+    devices = { publicKey: KEY, devices: [await thisDevice({ sources: [...all] })] };
+    renderPage();
+    for (const label of ["Uptime Kuma monitors down, certificates expiring", "Proxmox guests not running, failed backups", "UniFi devices offline, WAN or internet trouble", "Pi-hole blocking switched off"]) {
+      expect(((await screen.findByLabelText(label)) as HTMLInputElement).checked, label).toBe(true);
+    }
+    fireEvent.click(screen.getByLabelText("Pi-hole blocking switched off"));
+    await act(() => Promise.resolve());
+    expect(calls).toContainEqual({ method: "PATCH", path: "/api/notify/devices/5", body: { sources: all.filter((x) => x !== "dns") } });
+  });
+
   it("won't uncheck a device's last source", async () => {
     fakeBrowser({ subscribed: true, permission: "granted" });
     devices = { publicKey: KEY, devices: [await thisDevice({ sources: ["alert"] })] };
