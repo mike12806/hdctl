@@ -317,7 +317,7 @@ describe("the record", () => {
 });
 
 describe("this device's lock screen", () => {
-  it("closes alarms that were answered elsewhere and badges the app icon with what's left", async () => {
+  it("closes alarms that were answered elsewhere, clears recoveries, and badges the app icon with what's left", async () => {
     const close = [vi.fn(), vi.fn(), vi.fn()];
     const b = fakeBrowser({
       shown: [
@@ -330,6 +330,6 @@ describe("this device's lock screen", () => {
     renderPage();
     await screen.findByText("Harbor is down", { selector: "a" });
     await vi.waitFor(() => expect(b.badge).toHaveBeenCalledWith(1));
-    expect(close.map((c) => c.mock.calls.length)).toEqual([0, 1, 0]);
+    expect(close.map((c) => c.mock.calls.length)).toEqual([0, 1, 1]);
   });
 });

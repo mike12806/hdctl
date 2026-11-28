@@ -127,9 +127,13 @@ recoveries), set on the Notifications page.
 
 - **One notification per thing, replaced, not stacked.** Each push carries a
   tag per thing (`hdctl:target:harbor`), so its recovery ("Resolved: Harbor,
-  back up after 12 min") replaces the alarm on the lock screen, quietly. A
+  back up after 12 min") replaces the alarm on the lock screen, silently. A
   rise in severity (degraded → down) is pushed again, unless acknowledged.
   Recoveries go only for alarms that actually went out.
+- **Recoveries don't pile up.** Opening hdctl clears every "Resolved"
+  notification from that device (the page shows them), and any new push
+  clears the ones over ten minutes old. A push can't remove a notification
+  without showing one, so they can't vanish entirely on their own.
 - **Stale news doesn't arrive late.** Each push also carries a Web Push
   `Topic`, so a message still queued for an offline phone is replaced by the
   next one about the same thing, and its time is when it happened, not when

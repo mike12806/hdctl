@@ -1,4 +1,4 @@
-import { ACK, MUTE, MUTE_MINUTES, parsePayload, toNotification, type NotificationData, type ShowOptions } from "./payload";
+import { ACK, MUTE, MUTE_MINUTES, parsePayload, tidyRecoveries, toNotification, type NotificationData, type ShowOptions } from "./payload";
 
 /**
  * The service worker's behaviour, without its globals, so it is tested in
@@ -13,6 +13,7 @@ export interface WindowLike {
 
 export interface SwContext {
   showNotification(title: string, options: ShowOptions): Promise<void>;
+  getNotifications(): Promise<{ data: unknown; tag: string; close(): void }[]>;
   /** Same-origin window clients, controlled or not. */
   windows(): Promise<WindowLike[]>;
   openWindow(url: string): Promise<unknown>;
@@ -46,6 +47,11 @@ export async function handlePush(ctx: SwContext, read: () => unknown): Promise<v
   }
   const { title, options } = toNotification(p, ctx.images);
   await Promise.all([ctx.showNotification(title, options), ctx.setBadge(p.open).catch(() => undefined)]);
+  // Clear old recoveries while we're here, so they don't pile up on a device where hdctl isn't opened.
+  await ctx
+    .getNotifications()
+    .then((shown) => tidyRecoveries(shown, p.tag, Date.now()))
+    .catch(() => undefined);
 }
 
 /**

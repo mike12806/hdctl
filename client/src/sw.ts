@@ -55,6 +55,7 @@ const nav = self.navigator as Navigator & { setAppBadge?: (n: number) => Promise
 
 const ctx: SwContext = {
   showNotification: (title, options) => self.registration.showNotification(title, options),
+  getNotifications: () => self.registration.getNotifications(),
   windows: () => self.clients.matchAll({ type: "window", includeUncontrolled: true }),
   openWindow: (url) => self.clients.openWindow(url),
   fetch: (input, init) => fetch(input, init),
