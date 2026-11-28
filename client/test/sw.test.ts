@@ -1,16 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleClick, handlePush, handleSubscriptionChange, type SwContext, type WindowLike } from "../src/notifications/sw-handlers";
-import { closeAnswered, type PushPayload, type ShowOptions } from "../src/notifications/payload";
+import { RECOVERY_KEEP_MS, closeAnswered, tidyRecoveries, type PushPayload, type ShowOptions } from "../src/notifications/payload";
 
 /** The service worker's side, against a fake `self`: what it shows, and what a tap does. */
 
-function fakeSw(opts: { windows?: WindowLike[]; fetch?: (path: string, init: RequestInit) => Response | Promise<Response> } = {}) {
+type Shown = { data: unknown; tag: string; close: ReturnType<typeof vi.fn<() => void>> };
+
+function fakeSw(opts: { windows?: WindowLike[]; fetch?: (path: string, init: RequestInit) => Response | Promise<Response>; onScreen?: Shown[] } = {}) {
   const shown: { title: string; options: ShowOptions }[] = [];
   const badges: number[] = [];
   const opened: string[] = [];
   const fetched: { path: string; init: RequestInit }[] = [];
   const ctx: SwContext = {
     showNotification: async (title, options) => void shown.push({ title, options }),
+    getNotifications: async () => opts.onScreen ?? [],
     windows: async () => opts.windows ?? [],
     openWindow: async (url) => void opened.push(url),
     fetch: async (path, init) => {
@@ -42,12 +45,13 @@ describe("a push", () => {
           badge: "data:badge",
           timestamp: 1_700_000_000_000,
           renotify: true,
+          silent: false,
           requireInteraction: true,
           actions: [
             { action: "ack", title: "Acknowledge" },
             { action: "mute", title: "Mute 1 h" },
           ],
-          data: { id: 7, kind: "open", url: "/" },
+          data: { id: 7, kind: "open", url: "/", at: 1_700_000_000_000 },
         },
       },
     ]);
@@ -60,11 +64,26 @@ describe("a push", () => {
     expect(sw.shown[0]!.options.requireInteraction).toBe(false);
   });
 
-  it("replaces the alarm quietly with its recovery, with no buttons", async () => {
+  it("replaces the alarm with its recovery silently, with no buttons", async () => {
     const sw = fakeSw();
     await handlePush(sw.ctx, () => payload({ kind: "resolve", title: "Resolved: Harbor", body: "Back up (HTTP 200) after 12 min.", open: 0 }));
-    expect(sw.shown[0]!.options).toMatchObject({ tag: "hdctl:target:harbor", renotify: false, requireInteraction: false, actions: [] });
+    expect(sw.shown[0]!.options).toMatchObject({ tag: "hdctl:target:harbor", renotify: false, silent: true, requireInteraction: false, actions: [] });
     expect(sw.badges).toEqual([0]);
+  });
+
+  it("clears recoveries older than ten minutes when another push arrives, and nothing else", async () => {
+    const now = Date.now();
+    const on = (tag: string, data: unknown): Shown => ({ tag, data, close: vi.fn() });
+    const onScreen = [
+      on("hdctl:target:immich", { kind: "resolve", id: 3, at: now - RECOVERY_KEEP_MS - 1000 }), // old recovery: cleared
+      on("hdctl:target:paperless", { kind: "resolve", id: 4, at: now - 60_000 }), // recent recovery: kept
+      on("hdctl:target:emby", { kind: "resolve", id: 5 }), // from a build that didn't record when: cleared
+      on("hdctl:target:argo", { kind: "open", id: 6, at: now - 3_600_000 }), // an alarm: never by age
+      on("hdctl:test", { kind: "test", id: null, at: now - 3_600_000 }),
+    ];
+    const sw = fakeSw({ onScreen });
+    await handlePush(sw.ctx, () => payload());
+    expect(onScreen.map((n) => n.close.mock.calls.length)).toEqual([1, 0, 1, 0, 0]);
   });
 
   it("still shows something for a push it can't read, since every push must", async () => {
@@ -148,10 +167,18 @@ describe("a replaced subscription", () => {
 });
 
 describe("closeAnswered", () => {
-  it("closes alarms no longer open and unacknowledged, and leaves recoveries and tests alone", () => {
+  it("closes alarms no longer open and unacknowledged, and every recovery, and leaves tests alone", () => {
     const n = (data: unknown) => ({ data, close: vi.fn() });
     const shown = [n({ id: 1, kind: "open" }), n({ id: 2, kind: "escalate" }), n({ id: 3, kind: "open" }), n({ id: 3, kind: "resolve" }), n({ id: null, kind: "test" }), n(null)];
-    expect(closeAnswered(shown, new Set([1]))).toBe(2);
-    expect(shown.map((s) => s.close.mock.calls.length)).toEqual([0, 1, 1, 0, 0, 0]);
+    expect(closeAnswered(shown, new Set([1]))).toBe(3);
+    expect(shown.map((s) => s.close.mock.calls.length)).toEqual([0, 1, 1, 1, 0, 0]);
+  });
+});
+
+describe("tidyRecoveries", () => {
+  it("keeps the one just shown, however old", () => {
+    const n = { tag: "hdctl:lab", data: { kind: "resolve", at: 0 }, close: vi.fn() };
+    expect(tidyRecoveries([n], "hdctl:lab", Date.now())).toBe(0);
+    expect(n.close).not.toHaveBeenCalled();
   });
 });

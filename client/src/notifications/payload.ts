@@ -31,7 +31,12 @@ export interface NotificationData {
   id: number | null;
   kind: Kind;
   url: string;
+  /** When it happened, so an old recovery can be tidied away (see tidyRecoveries). */
+  at?: number;
 }
+
+/** A "Resolved" notification is cleared by the next one to arrive once it's this old. */
+export const RECOVERY_KEEP_MS = 10 * 60_000;
 
 export const ACK = "ack";
 export const MUTE = "mute";
@@ -73,15 +78,17 @@ export type ShowOptions = NotificationOptions & {
  *    same thing (renotify), with Acknowledge and Mute 1 h buttons where the
  *    platform shows them (not iOS: there a tap opens the page). A critical one
  *    stays on a desktop screen until dealt with.
- *  - resolve: replaces the alarm under the same tag, quietly. If the alarm
- *    was already swiped away, it arrives like any notification.
+ *  - resolve: replaces the alarm under the same tag, silently (no sound or
+ *    vibration, even if the alarm was already swiped away). It doesn't stay:
+ *    opening hdctl clears it (closeAnswered), and so does the next push to
+ *    arrive once it's RECOVERY_KEEP_MS old (tidyRecoveries).
  *  - test: on its own tag.
  * `timestamp` is when it happened, so a phone that was offline shows "12 min
  * ago" rather than "now".
  */
 export function toNotification(p: PushPayload, images: { icon: string; badge: string }): { title: string; options: ShowOptions } {
   const alarm = p.kind === "open" || p.kind === "escalate";
-  const data: NotificationData = { id: p.id, kind: p.kind, url: p.url };
+  const data: NotificationData = { id: p.id, kind: p.kind, url: p.url, at: p.at };
   return {
     title: p.title,
     options: {
@@ -91,6 +98,7 @@ export function toNotification(p: PushPayload, images: { icon: string; badge: st
       badge: images.badge,
       timestamp: p.at,
       renotify: alarm,
+      silent: p.kind === "resolve",
       requireInteraction: alarm && p.severity === "critical",
       actions:
         alarm && p.id !== null
@@ -104,18 +112,41 @@ export function toNotification(p: PushPayload, images: { icon: string; badge: st
   };
 }
 
+type Shown = { data: unknown; tag?: string; close(): void };
+
 /**
- * Close the alarms on this device that are no longer open and unacknowledged:
- * resolved, acknowledged on another device, or gone. A push is a copy that
- * lives on the device, so nothing the server does can take it back; the page
- * does, whenever it reads the incidents. Call it only with a list that
- * actually came back from the server: a failed read says nothing is over.
+ * Tidy this device's notifications against what the server just said: close
+ * the alarms no longer open and unacknowledged (resolved, acknowledged on
+ * another device, or gone), and every "Resolved" one, which hdctl's own page
+ * now shows. A push is a copy that lives on the device, so nothing the server
+ * does can take it back; the page does, whenever it reads the incidents. Call
+ * it only with a list that actually came back from the server: a failed read
+ * says nothing is over.
  */
-export function closeAnswered(shown: { data: unknown; close(): void }[], live: Set<number>): number {
+export function closeAnswered(shown: Shown[], live: Set<number>): number {
   let closed = 0;
   for (const n of shown) {
     const d = n.data as Partial<NotificationData> | null;
-    if (!d || (d.kind !== "open" && d.kind !== "escalate") || typeof d.id !== "number" || live.has(d.id)) continue;
+    const answered = (d?.kind === "open" || d?.kind === "escalate") && typeof d.id === "number" && !live.has(d.id);
+    if (!answered && d?.kind !== "resolve") continue;
+    n.close();
+    closed++;
+  }
+  return closed;
+}
+
+/**
+ * The service worker's half of keeping recoveries from piling up, for a
+ * device where hdctl isn't opened: when a push arrives, close the "Resolved"
+ * notifications older than RECOVERY_KEEP_MS, other than the one just shown
+ * (`keepTag`). One from a build before `at` was recorded counts as old.
+ */
+export function tidyRecoveries(shown: Shown[], keepTag: string, now: number): number {
+  let closed = 0;
+  for (const n of shown) {
+    const d = n.data as Partial<NotificationData> | null;
+    if (d?.kind !== "resolve" || n.tag === keepTag) continue;
+    if (typeof d.at === "number" && now - d.at <= RECOVERY_KEEP_MS) continue;
     n.close();
     closed++;
   }
